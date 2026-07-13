@@ -1,0 +1,14 @@
+{
+  "name": "sat/sat-bus-booking",
+  "description": "SAT Bus Booking - Saudi Inter-city Transport",
+  "version": "2.0.0",
+  "type": "project",
+  "require": {
+    "php": ">=8.3.0"
+  },
+  "config": {
+    "platform": {
+      "php": "8.3.0"
+    }
+  }
+}

@@ -1,0 +1,11 @@
+/* Fade-in for tab switching */
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.duration-400 { transition-duration: 400ms; }
+.duration-350 { transition-duration: 350ms; }
+.duration-250 { transition-duration: 250ms; }

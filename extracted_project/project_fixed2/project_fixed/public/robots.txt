@@ -1,0 +1,27 @@
+User-agent: *
+Allow: /
+Allow: /services
+Allow: /fleet
+Allow: /destinations
+Allow: /faq
+Allow: /testimonials
+
+Disallow: /admin
+Disallow: /admin-login
+Disallow: /login
+
+Sitemap: https://satrans.com.sa/sitemap.xml
+Sitemap: https://satrans.com.sa/sitemap-routes.xml
+Sitemap: https://satrans.com.sa/sitemap-stations.xml
+Sitemap: https://satrans.com.sa/sitemap-blog.xml
+
+Crawl-delay: 1
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: Slurp
+Allow: /

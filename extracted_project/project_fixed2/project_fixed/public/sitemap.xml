@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+
+  <!-- Homepage -->
+  <url>
+    <loc>https://satrans.com.sa/</loc>
+    <lastmod>2025-02-01</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.00</priority>
+  </url>
+
+  <!-- Services -->
+  <url>
+    <loc>https://satrans.com.sa/services</loc>
+    <lastmod>2025-02-01</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.90</priority>
+  </url>
+
+  <!-- Fleet -->
+  <url>
+    <loc>https://satrans.com.sa/fleet</loc>
+    <lastmod>2025-02-01</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- Destinations -->
+  <url>
+    <loc>https://satrans.com.sa/destinations</loc>
+    <lastmod>2025-02-01</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- FAQ -->
+  <url>
+    <loc>https://satrans.com.sa/faq</loc>
+    <lastmod>2025-02-01</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.80</priority>
+  </url>
+
+  <!-- Testimonials -->
+  <url>
+    <loc>https://satrans.com.sa/testimonials</loc>
+    <lastmod>2025-02-01</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.75</priority>
+  </url>
+
+  <!-- Routes Sitemap -->
+  <url>
+    <loc>https://satrans.com.sa/sitemap-routes.xml</loc>
+    <lastmod>2025-02-01</lastmod>
+    <priority>0.90</priority>
+  </url>
+
+  <!-- Stations Sitemap -->
+  <url>
+    <loc>https://satrans.com.sa/sitemap-stations.xml</loc>
+    <lastmod>2025-02-01</lastmod>
+    <priority>0.85</priority>
+  </url>
+
+  <!-- Blog Sitemap -->
+  <url>
+    <loc>https://satrans.com.sa/sitemap-blog.xml</loc>
+    <lastmod>2025-02-01</lastmod>
+    <priority>0.70</priority>
+  </url>
+
+</urlset>
