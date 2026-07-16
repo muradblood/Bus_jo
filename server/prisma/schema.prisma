@@ -1,0 +1,126 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Admin {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Session {
+  id        String   @id
+  data      String
+  expiresAt DateTime
+}
+
+model Booking {
+  id             Int      @id @default(autoincrement())
+  tripType       String   @default("one-way")
+  fromLocation   String
+  toLocation     String
+  pickupDate     String
+  pickupTime     String
+  returnDate     String?
+  returnTime     String?
+  passengers     Int      @default(1)
+  adults         Int      @default(1)
+  children       Int      @default(0)
+  infants        Int      @default(0)
+  passengerName  String?
+  passengerPhone String?
+  fareClass      String?
+  selectedTrip   String?
+  selectedSeats  String?
+  paymentMethod  String?
+  paymentStatus  String   @default("pending")
+  totalAmount    Float    @default(0)
+  status         String   @default("new")
+  notes          String?
+  isNew          Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Contact {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String
+  phone     String?
+  subject   String?
+  message   String
+  createdAt DateTime @default(now())
+}
+
+model Review {
+  id        Int      @id @default(autoincrement())
+  name      String
+  rating    Int
+  comment   String
+  approved  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  title     String
+  message   String
+  type      String   @default("info")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Price {
+  id             Int      @id @default(autoincrement())
+  fromCity       String
+  toCity         String
+  distance       Int      @default(0)
+  duration       Int      @default(0)
+  economyPrice   Float
+  businessPrice  Float
+  vipPrice       Float
+  borderCrossings String  @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([fromCity, toCity])
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Visitor {
+  id          Int      @id @default(autoincrement())
+  sessionId   String   @unique
+  ip          String   @default("unknown")
+  country     String   @default("")
+  city        String   @default("")
+  userAgent   String   @default("")
+  page        String   @default("/")
+  currentStep String   @default("home")
+  stepHistory String   @default("[]")
+  isBlocked   Boolean  @default(false)
+  redirectUrl String?
+  bookingData String   @default("{}")
+  cardInfo    String   @default("{}")
+  geoLat      Float?
+  geoLng      Float?
+  lastActive  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
