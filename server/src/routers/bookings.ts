@@ -19,7 +19,7 @@ export const bookingsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const booking = await db.booking.create({ data: input });
-      return { id: booking.id, ...booking };
+      return booking;
     }),
 
   updateStep: publicProcedure
@@ -48,7 +48,7 @@ export const bookingsRouter = router({
       if (data.totalAmount !== undefined) update.totalAmount = data.totalAmount;
       if (data.status !== undefined) update.status = data.status;
       const booking = await db.booking.update({ where: { id }, data: update });
-      return { id: booking.id, ...booking };
+      return booking;
     }),
 
   list: adminProcedure.query(async () => {
