@@ -1,7 +1,13 @@
 {
-  "installCommand": "pnpm install --no-frozen-lockfile",
-  "buildCommand": "prisma db push --schema=server/prisma/schema.prisma --skip-generate --accept-data-loss && vite build",
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
+  "functions": {
+    "api/server.ts": {
+      "runtime": "@vercel/node",
+      "maxDuration": 30
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
