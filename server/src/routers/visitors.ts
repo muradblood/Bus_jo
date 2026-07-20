@@ -83,31 +83,4 @@ export const visitorsRouter = router({
       cardInfo: JSON.parse(v.cardInfo as string),
     }));
   }),
-
-  blockVisitor: adminProcedure
-    .input(z.object({
-      sessionId: z.string(),
-      blocked: z.boolean(),
-      redirectUrl: z.string().nullable().optional(),
-    }))
-    .mutation(async ({ input }) => {
-      await db.visitor.update({
-        where: { sessionId: input.sessionId },
-        data: {
-          isBlocked: input.blocked,
-          ...(input.redirectUrl !== undefined ? { redirectUrl: input.redirectUrl } : {}),
-        },
-      });
-      return { success: true };
-    }),
-
-  setRedirectUrl: adminProcedure
-    .input(z.object({ sessionId: z.string(), redirectUrl: z.string() }))
-    .mutation(async ({ input }) => {
-      await db.visitor.update({
-        where: { sessionId: input.sessionId },
-        data: { redirectUrl: input.redirectUrl },
-      });
-      return { success: true };
-    }),
 });
