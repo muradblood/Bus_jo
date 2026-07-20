@@ -2,19 +2,19 @@ import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
-import { appRouter } from './routers/index.js';
-import { createContext } from './context.js';
-import { db } from './db.js';
+import { appRouter } from '../server/src/routers/index.js';
+import { createContext } from '../server/src/context.js';
 
-const PORT = parseInt(process.env.PORT || '3001', 10);
 const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const NODE_ENV = process.env.NODE_ENV || 'production';
 
 const app = express();
 
 app.use(cors({
   origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. same-origin, curl)
     if (!origin) return callback(null, true);
+    // Allow any .vercel.app subdomain, localhost, and explicit ALLOWED_ORIGINS
     const allowed = [
       'http://localhost:3000',
       'http://localhost:5173',
@@ -56,13 +56,4 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
-app.listen(PORT, async () => {
-  try {
-    await db.$connect();
-    console.log(`✅ Database connected`);
-  } catch (e) {
-    console.error('❌ Database connection failed:', e);
-  }
-  console.log(`🚌 SAT Bus Server running on http://localhost:${PORT}`);
-  console.log(`📡 tRPC API available at http://localhost:${PORT}/api/trpc`);
-});
+export default app;
