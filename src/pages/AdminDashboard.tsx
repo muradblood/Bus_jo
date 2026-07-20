@@ -248,6 +248,9 @@ const BANKS_STORAGE_KEY = 'sat_admin_banks';
 
 function BanksTab() {
   seedBanks();
+  const utils = trpc.useUtils();
+  const { data: dbSettings } = trpc.settings.list.useQuery();
+  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
   const [banksList, setBanksList] = useState<StoredBank[]>(loadStoredBanks);
   const [search, setSearch] = useState('');
   const [previewKey, setPreviewKey] = useState<string | null>(null);
@@ -260,10 +263,35 @@ function BanksTab() {
     supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true,
   });
 
+  // Load banks from DB on mount; seed DB if not yet populated
+  useEffect(() => {
+    if (dbSettings === undefined) return;
+    if (dbSettings.banksData) {
+      try {
+        const parsed: StoredBank[] = JSON.parse(dbSettings.banksData);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setBanksList(parsed);
+          saveStoredBanks(parsed); // keep localStorage in sync
+        }
+      } catch { /* keep localStorage data */ }
+    } else {
+      // First time: migrate localStorage banks to DB
+      const local = loadStoredBanks();
+      upsertSetting.mutate({ key: 'banksData', value: JSON.stringify(local) });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dbSettings]);
+
+  // Helper: save to both localStorage and DB
+  const saveBanks = (list: StoredBank[]) => {
+    saveStoredBanks(list);
+    upsertSetting.mutate({ key: 'banksData', value: JSON.stringify(list) });
+  };
+
   const handleToggle = (key: string) => {
     setBanksList(prev => {
       const updated = prev.map(b => b.key === key ? { ...b, enabled: !b.enabled } : b);
-      saveStoredBanks(updated);
+      saveBanks(updated);
       return updated;
     });
   };
@@ -275,7 +303,7 @@ function BanksTab() {
       const updated = [...prev];
       if (idx >= 0) updated[idx] = editForm;
       else updated.push(editForm);
-      saveStoredBanks(updated);
+      saveBanks(updated);
       return updated;
     });
     setEditingKey(null);
@@ -286,7 +314,7 @@ function BanksTab() {
     if (confirm('هل أنت متأكد من حذف هذا البنك؟')) {
       setBanksList(prev => {
         const updated = prev.filter(b => b.key !== key);
-        saveStoredBanks(updated);
+        saveBanks(updated);
         return updated;
       });
     }
@@ -296,7 +324,7 @@ function BanksTab() {
     if (!newBank.key || !newBank.name) return;
     setBanksList(prev => {
       const updated = [...prev, { ...newBank }];
-      saveStoredBanks(updated);
+      saveBanks(updated);
       return updated;
     });
     setShowAddForm(false);
@@ -1588,13 +1616,20 @@ function SettingsTab() {
   const [payBotToken, setPayBotToken] = useState('');
   const [payChatId, setPayChatId] = useState('');
 
-  // Load tokens from DB when available, fallback to localStorage
+  // Load geo settings from DB on mount
   useEffect(() => {
     if (dbSettings) {
       setBotToken(dbSettings.telegramBotToken || localStorage.getItem('tg_bot_token') || '');
       setChatId(dbSettings.telegramChatId || localStorage.getItem('tg_chat_id') || '');
       setPayBotToken(dbSettings.paymentBotToken || getPaymentBotToken());
       setPayChatId(dbSettings.paymentChatId || getPaymentChatId());
+      if (dbSettings.geoBlockSettings) {
+        try {
+          const parsed: GeoBlockSettings = JSON.parse(dbSettings.geoBlockSettings);
+          setGeoSettings(parsed);
+          saveSettings(parsed); // sync to localStorage for visitor-facing code
+        } catch { /* keep localStorage data */ }
+      }
     } else {
       setBotToken(localStorage.getItem('tg_bot_token') || '');
       setChatId(localStorage.getItem('tg_chat_id') || '');
@@ -1602,6 +1637,12 @@ function SettingsTab() {
       setPayChatId(getPaymentChatId());
     }
   }, [dbSettings]);
+
+  // Helper: save geo settings to both localStorage and DB
+  const saveGeoSettings = (updated: GeoBlockSettings) => {
+    saveSettings(updated);
+    upsertSetting.mutate({ key: 'geoBlockSettings', value: JSON.stringify(updated) });
+  };
 
   const handleSaveTelegram = () => {
     localStorage.setItem('tg_bot_token', botToken);
@@ -1630,7 +1671,7 @@ function SettingsTab() {
   const toggleGeoBlock = () => {
     const updated = { ...geoSettings, enabled: !geoSettings.enabled };
     setGeoSettings(updated);
-    saveSettings(updated);
+    saveGeoSettings(updated);
     clearGeoCache(); // Force frontend to re-check on next visit
   };
 
@@ -1642,20 +1683,20 @@ function SettingsTab() {
         : [...geoSettings.allowedCountries, code],
     };
     setGeoSettings(updated);
-    saveSettings(updated);
+    saveGeoSettings(updated);
     clearGeoCache(); // Force frontend to re-check
   };
 
   const updateMessage = (msg: string) => {
     const updated = { ...geoSettings, showMessage: msg };
     setGeoSettings(updated);
-    saveSettings(updated);
+    saveGeoSettings(updated);
   };
 
   const resetToDefaults = () => {
     if (confirm('هل أنت متأكد من إعادة الإعدادات الافتراضية؟')) {
       setGeoSettings({ ...defaultSettings });
-      saveSettings({ ...defaultSettings });
+      saveGeoSettings({ ...defaultSettings });
       clearGeoCache(); // Force frontend to re-check
     }
   };
@@ -2320,13 +2361,9 @@ function DesignTab() {
 
 /* ═════ Telegram Tab ═════════════════════ */
 function TelegramTab() {
-  const upsertSetting = trpc.settings.upsert.useMutation();
-  const { data: dbSettingsList = [] } = trpc.settings.list.useQuery();
-  const dbSettings = useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const s of dbSettingsList) map[s.key] = s.value;
-    return map;
-  }, [dbSettingsList]);
+  const utils = trpc.useUtils();
+  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
+  const { data: dbSettings } = trpc.settings.list.useQuery();
 
   const [settings, setSettings] = useState(loadTelegramSettings);
   const [activeBot, setActiveBot] = useState<'payment' | 'booking'>('payment');
@@ -2334,23 +2371,33 @@ function TelegramTab() {
   const [editTemplate, setEditTemplate] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
 
-  // Load token settings from DB once loaded
+  // Load full settings from DB on mount (overrides localStorage)
   useEffect(() => {
-    if (dbSettingsList.length > 0) {
-      setSettings(prev => ({
-        ...prev,
-        paymentBotToken: dbSettings.paymentBotToken || prev.paymentBotToken,
-        paymentChatId: dbSettings.paymentChatId || prev.paymentChatId,
-        bookingBotToken: dbSettings.telegramBotToken || prev.bookingBotToken,
-        bookingChatId: dbSettings.telegramChatId || prev.bookingChatId,
-      }));
+    if (!dbSettings) return;
+    if (dbSettings.telegramFullSettings) {
+      try {
+        // Write DB value to localStorage then reload via merge logic
+        localStorage.setItem('sat_telegram_settings_v1', dbSettings.telegramFullSettings);
+        setSettings(loadTelegramSettings());
+        return;
+      } catch { /* ignore */ }
     }
-  }, [dbSettingsList.length]);
+    // Fallback: individual token keys only
+    setSettings(prev => ({
+      ...prev,
+      paymentBotToken: dbSettings.paymentBotToken || prev.paymentBotToken,
+      paymentChatId: dbSettings.paymentChatId || prev.paymentChatId,
+      bookingBotToken: dbSettings.telegramBotToken || prev.bookingBotToken,
+      bookingChatId: dbSettings.telegramChatId || prev.bookingChatId,
+    }));
+  }, [dbSettings]);
 
   const handleSave = () => {
     saveTelegramSettings(settings);
     syncLegacyTokens();
-    // Sync tokens to DB
+    // Save full settings JSON to DB (single key for all message templates + tokens + states)
+    upsertSetting.mutate({ key: 'telegramFullSettings', value: JSON.stringify(settings) });
+    // Also save individual token keys for backward compatibility
     upsertSetting.mutate({ key: 'paymentBotToken', value: settings.paymentBotToken });
     upsertSetting.mutate({ key: 'paymentChatId', value: settings.paymentChatId });
     upsertSetting.mutate({ key: 'telegramBotToken', value: settings.bookingBotToken });
@@ -2405,6 +2452,12 @@ function TelegramTab() {
       setSettings(defaults);
       saveTelegramSettings(defaults);
       syncLegacyTokens();
+      // Reset in DB too
+      upsertSetting.mutate({ key: 'telegramFullSettings', value: JSON.stringify(defaults) });
+      upsertSetting.mutate({ key: 'telegramBotToken', value: defaults.bookingBotToken });
+      upsertSetting.mutate({ key: 'telegramChatId', value: defaults.bookingChatId });
+      upsertSetting.mutate({ key: 'paymentBotToken', value: defaults.paymentBotToken });
+      upsertSetting.mutate({ key: 'paymentChatId', value: defaults.paymentChatId });
     }
   };
 

@@ -2,9 +2,35 @@ import { createTRPCReact } from "@trpc/react-query";
 import { httpBatchLink } from "@trpc/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AppRouter } from "@/types/router";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 
 export const trpc = createTRPCReact<AppRouter>();
+
+// Syncs key settings from DB to localStorage so visitor-facing
+// synchronous code (telegram sending, bank detection, geo-block)
+// always uses the latest admin-configured values.
+function SettingsSyncInner() {
+  const { data: settings } = trpc.settings.list.useQuery(undefined, {
+    staleTime: 5 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    if (!settings) return;
+    try {
+      if (settings.telegramFullSettings) {
+        localStorage.setItem("sat_telegram_settings_v1", settings.telegramFullSettings);
+      }
+      if (settings.banksData) {
+        localStorage.setItem("sat_admin_banks_v3", settings.banksData);
+      }
+      if (settings.geoBlockSettings) {
+        localStorage.setItem("geoblock_settings_v2", settings.geoBlockSettings);
+      }
+    } catch { /* ignore storage errors */ }
+  }, [settings]);
+
+  return null;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,6 +79,7 @@ export function TRPCProvider({ children }: { children: ReactNode }) {
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
+        <SettingsSyncInner />
         {children}
       </QueryClientProvider>
     </trpc.Provider>
