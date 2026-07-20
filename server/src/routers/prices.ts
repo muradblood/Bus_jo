@@ -136,4 +136,18 @@ export const pricesRouter = router({
         create: { ...rest, borderCrossings: JSON.stringify(borderCrossings) },
       });
     }),
+
+  delete: adminProcedure
+    .input(z.object({ fromCity: z.string(), toCity: z.string() }))
+    .mutation(async ({ input }) => {
+      await db.price.deleteMany({
+        where: {
+          OR: [
+            { fromCity: input.fromCity, toCity: input.toCity },
+            { fromCity: input.toCity, toCity: input.fromCity },
+          ],
+        },
+      });
+      return { success: true };
+    }),
 });

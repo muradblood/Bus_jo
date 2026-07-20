@@ -70,4 +70,23 @@ export const adminRouter = router({
       await db.notification.update({ where: { id: input.id }, data: { isRead: true } });
       return { success: true };
     }),
+
+  updateBookingStatus: adminProcedure
+    .input(z.object({ id: z.number(), status: z.string() }))
+    .mutation(async ({ input }) => {
+      return db.booking.update({ where: { id: input.id }, data: { status: input.status } });
+    }),
+
+  markBookingSeen: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      await db.booking.update({ where: { id: input.id }, data: { isNew: false } });
+      return { success: true };
+    }),
+
+  markAllBookingsSeen: adminProcedure
+    .mutation(async () => {
+      await db.booking.updateMany({ where: { isNew: true }, data: { isNew: false } });
+      return { success: true };
+    }),
 });
