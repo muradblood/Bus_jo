@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<browserconfig>
-    <msapplication>
-        <tile>
-            <square150x150logo src="/sat-logo.png"/>
-            <TileColor>#D4A843</TileColor>
-        </tile>
-    </msapplication>
-</browserconfig>
