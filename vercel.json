@@ -16,10 +16,7 @@
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "/server/src/vercel.ts" },
-    {
-      "src": "/(.*\\.[a-z0-9]+)$",
-      "dest": "/dist/public/$1"
-    },
-    { "src": "/(.*)", "dest": "/dist/public/index.html" }
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
