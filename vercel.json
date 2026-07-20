@@ -4,13 +4,18 @@
   "outputDirectory": "dist/public",
   "functions": {
     "api/server.ts": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "includeFiles": "node_modules/.prisma/client/**"
     }
   },
   "rewrites": [
     {
       "source": "/api/(.*)",
       "destination": "/api/server"
+    },
+    {
+      "source": "/((?!api).*)",
+      "destination": "/index.html"
     }
   ]
 }
