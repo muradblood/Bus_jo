@@ -18,6 +18,9 @@ export type AppRouter = {
     createNotification: { _def: { type: 'mutation' } };
     getNotifications: { _def: { type: 'query' } };
     markNotificationRead: { _def: { type: 'mutation' } };
+    updateBookingStatus: { _def: { type: 'mutation' } };
+    markBookingSeen: { _def: { type: 'mutation' } };
+    markAllBookingsSeen: { _def: { type: 'mutation' } };
   };
   cities: {
     list: { _def: { type: 'query' } };
@@ -37,6 +40,7 @@ export type AppRouter = {
     get: { _def: { type: 'query' } };
     list: { _def: { type: 'query' } };
     upsert: { _def: { type: 'mutation' } };
+    delete: { _def: { type: 'mutation' } };
   };
   settings: {
     list: { _def: { type: 'query' } };
@@ -48,5 +52,7 @@ export type AppRouter = {
     track: { _def: { type: 'mutation' } };
     stats: { _def: { type: 'query' } };
     list: { _def: { type: 'query' } };
+    blockVisitor: { _def: { type: 'mutation' } };
+    setRedirectUrl: { _def: { type: 'mutation' } };
   };
 };

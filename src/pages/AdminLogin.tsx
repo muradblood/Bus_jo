@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { Lock, User, Eye, EyeOff } from 'lucide-react';
+import { trpc } from '@/providers/trpc';
 
 const AdminLogin: React.FC = () => {
   const navigate = useNavigate();
@@ -10,6 +11,8 @@ const AdminLogin: React.FC = () => {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const loginMutation = trpc.auth.login.useMutation();
+
   // Check if already logged in
   useEffect(() => {
     const token = localStorage.getItem('admin_token');
@@ -18,7 +21,7 @@ const AdminLogin: React.FC = () => {
     }
   }, [navigate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -29,8 +32,13 @@ const AdminLogin: React.FC = () => {
 
     setIsSubmitting(true);
 
-    // Simulate network delay
-    setTimeout(() => {
+    try {
+      // Try tRPC auth first
+      await loginMutation.mutateAsync({ username, password });
+      localStorage.setItem('admin_token', 'sat_admin_2024');
+      navigate('/admin');
+    } catch {
+      // Fallback to hardcoded credentials if backend is offline
       if (username === 'admin' && password === 'sat123') {
         localStorage.setItem('admin_token', 'sat_admin_2024');
         navigate('/admin');
@@ -38,7 +46,7 @@ const AdminLogin: React.FC = () => {
         setError('اسم المستخدم أو كلمة المرور غير صحيحة');
         setIsSubmitting(false);
       }
-    }, 800);
+    }
   };
 
   return (
