@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "prisma generate --schema=server/prisma/schema.prisma && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "check": "tsc -b",
-    "postinstall": "prisma generate --schema=server/prisma/schema.prisma"
+    "postinstall": "DATABASE_URL=postgresql://localhost/placeholder prisma generate --schema=server/prisma/schema.prisma"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
