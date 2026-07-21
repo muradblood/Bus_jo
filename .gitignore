@@ -40,3 +40,7 @@ Thumbs.db
 
 # Vercel
 .vercel
+
+# Local JSON database (use data/ for local dev)
+data/
+server/data/
