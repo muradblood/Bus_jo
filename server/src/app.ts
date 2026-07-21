@@ -23,6 +23,9 @@ export function createApp() {
   if (process.env.VERCEL_URL) {
     allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
   }
+  if (process.env.ALLOWED_ORIGINS) {
+    allowedOrigins.push(...process.env.ALLOWED_ORIGINS.split(',').map((o) => o.trim()));
+  }
 
   const app = express();
 

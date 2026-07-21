@@ -1,22 +1,15 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": { "distDir": "dist/public" }
-    },
-    {
-      "src": "server/src/vercel.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": "server/prisma/**"
-      }
+  "installCommand": "npm ci",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist/public",
+  "functions": {
+    "api/server.ts": {
+      "maxDuration": 30,
+      "includeFiles": "node_modules/.prisma/client/**"
     }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/server/src/vercel.ts" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/server" },
+    { "source": "/((?!api).*)", "destination": "/index.html" }
   ]
 }
