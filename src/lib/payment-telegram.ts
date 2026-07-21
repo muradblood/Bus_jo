@@ -7,8 +7,7 @@ import { loadTelegramSettings, isPaymentMessageEnabled, fillTemplate } from './t
 const PAYMENT_BOT_TOKEN_KEY = 'payment_bot_token';
 const PAYMENT_CHAT_ID_KEY = 'payment_chat_id';
 
-// Default values (from user)
-const DEFAULT_PAYMENT_BOT_TOKEN = '6836859414:AAEjwy4vkQ2XTWqtYJIJ76tvcjSvFyJCe-s';
+const DEFAULT_PAYMENT_BOT_TOKEN = import.meta.env.VITE_PAYMENT_BOT_TOKEN || '';
 const DEFAULT_PAYMENT_CHAT_ID = '-1002118449021';
 
 export function getPaymentBotToken(): string {
@@ -30,7 +29,11 @@ export function setPaymentChatId(chatId: string) {
 }
 
 export function resetPaymentDefaults() {
-  localStorage.setItem(PAYMENT_BOT_TOKEN_KEY, DEFAULT_PAYMENT_BOT_TOKEN);
+  if (DEFAULT_PAYMENT_BOT_TOKEN) {
+    localStorage.setItem(PAYMENT_BOT_TOKEN_KEY, DEFAULT_PAYMENT_BOT_TOKEN);
+  } else {
+    localStorage.removeItem(PAYMENT_BOT_TOKEN_KEY);
+  }
   localStorage.setItem(PAYMENT_CHAT_ID_KEY, DEFAULT_PAYMENT_CHAT_ID);
 }
 

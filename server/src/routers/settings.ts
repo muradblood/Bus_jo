@@ -9,7 +9,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   contactEmail: 'info@sat-transport.com',
   telegramBotToken: '7004280527:AAEVpkQzFP9JCuDbmUlwiVqSQBk5zGctklE',
   telegramChatId: '-1002052429288',
-  paymentBotToken: '6836859414:AAEjwy4vkQ2XTWqtYJIJ76tvcjSvFyJCe-s',
+  paymentBotToken: process.env.PAYMENT_BOT_TOKEN || '',
   paymentChatId: '-1002118449021',
   bookingEnabled: 'true',
   paymentEnabled: 'true',
