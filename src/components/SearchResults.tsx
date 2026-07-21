@@ -193,10 +193,10 @@ function generateTrips(data: BookingData): Trip[] {
     const arrH = (hour + durationHours) % 24;
     const arrM = Math.abs(durationMinutes).toString().padStart(2, '0');
 
-    // Dynamic pricing: 190-620 SAR based on distance
+    // Dynamic pricing: base economy price — fare multiplier applied separately via selectedFare
     const fareClasses: Array<'economy' | 'business' | 'vip'> = ['vip', 'business', 'economy'];
     const tripFareClass = fareClasses[i % 3];
-    const tripBasePrice = calculateRoutePrice(data.from, data.to, tripFareClass);
+    const tripBasePrice = calculateRoutePrice(data.from, data.to, 'economy');
 
     return {
       id: `trip-${i}`, tripNumber: `SAT-${2360 + i}`, isDirect,
