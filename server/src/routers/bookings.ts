@@ -2,21 +2,88 @@ import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
 
+const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
+const isValidDateOnly = (dateStr: string) => {
+  if (!DATE_ONLY_REGEX.test(dateStr)) return false;
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  return (
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day
+  );
+};
+
+const getTodayDateOnly = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+const bookingCreateInput = z.object({
+  tripType: z.string().optional().default('one-way'),
+  fromLocation: z.string(),
+  toLocation: z.string(),
+  pickupDate: z.string(),
+  pickupTime: z.string().optional().default('10:00'),
+  returnDate: z.string().optional(),
+  returnTime: z.string().optional(),
+  passengers: z.number().optional().default(1),
+  adults: z.number().optional().default(1),
+  children: z.number().optional().default(0),
+  infants: z.number().optional().default(0),
+}).superRefine((input, ctx) => {
+  const today = getTodayDateOnly();
+
+  if (!isValidDateOnly(input.pickupDate)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['pickupDate'],
+      message: 'pickupDate must be a valid YYYY-MM-DD date',
+    });
+    return;
+  }
+
+  if (input.pickupDate < today) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['pickupDate'],
+      message: 'pickupDate cannot be in the past',
+    });
+  }
+
+  if (input.tripType === 'round-trip' && !input.returnDate) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['returnDate'],
+      message: 'returnDate is required for round-trip bookings',
+    });
+    return;
+  }
+
+  if (input.returnDate) {
+    if (!isValidDateOnly(input.returnDate)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['returnDate'],
+        message: 'returnDate must be a valid YYYY-MM-DD date',
+      });
+      return;
+    }
+
+    if (input.returnDate < input.pickupDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['returnDate'],
+        message: 'returnDate cannot be earlier than pickupDate',
+      });
+    }
+  }
+});
+
 export const bookingsRouter = router({
   create: publicProcedure
-    .input(z.object({
-      tripType: z.string().optional().default('one-way'),
-      fromLocation: z.string(),
-      toLocation: z.string(),
-      pickupDate: z.string(),
-      pickupTime: z.string().optional().default('10:00'),
-      returnDate: z.string().optional(),
-      returnTime: z.string().optional(),
-      passengers: z.number().optional().default(1),
-      adults: z.number().optional().default(1),
-      children: z.number().optional().default(0),
-      infants: z.number().optional().default(0),
-    }))
+    .input(bookingCreateInput)
     .mutation(async ({ input }) => {
       const booking = await db.booking.create({ data: input });
       return booking;

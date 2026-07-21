@@ -7,6 +7,7 @@ interface DatePickerProps {
   placeholder?: string;
   label?: string;
   required?: boolean;
+  minDate?: string;
 }
 
 const MONTHS = [
@@ -36,6 +37,7 @@ const DatePicker: React.FC<DatePickerProps> = ({
   placeholder = 'اختر التاريخ',
   label,
   required = false,
+  minDate,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [viewDate, setViewDate] = useState(() => {
@@ -73,6 +75,7 @@ const DatePicker: React.FC<DatePickerProps> = ({
 
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const effectiveMinDate = minDate || todayStr;
 
   const prevMonth = () => setViewDate(new Date(year, month - 1, 1));
   const nextMonth = () => setViewDate(new Date(year, month + 1, 1));
@@ -92,6 +95,11 @@ const DatePicker: React.FC<DatePickerProps> = ({
   const isToday = (day: number) => {
     const [ty, tm, td] = todayStr.split('-').map(Number);
     return ty === year && tm === month + 1 && td === day;
+  };
+
+  const isBeforeMinDate = (day: number) => {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return dateStr < effectiveMinDate;
   };
 
   // Build calendar cells
@@ -177,15 +185,18 @@ const DatePicker: React.FC<DatePickerProps> = ({
               }
               const sel = isSelected(cell.day);
               const todayCell = isToday(cell.day);
+              const disabled = isBeforeMinDate(cell.day);
               return (
                 <button
                   key={`day-${cell.day}`}
-                  onClick={() => selectDate(cell.day)}
+                  onClick={() => !disabled && selectDate(cell.day)}
+                  disabled={disabled}
                   className={`
                     text-center text-sm font-bold py-1.5 rounded-full transition-all
+                    ${disabled ? 'text-[#D5CFC5] cursor-not-allowed' : ''}
                     ${sel ? 'bg-[#C4A94D] text-white shadow-md' : ''}
-                    ${!sel && todayCell ? 'text-[#C4A94D] border border-[#C4A94D]' : ''}
-                    ${!sel && !todayCell ? 'text-charcoal hover:bg-[#C4A94D]/10' : ''}
+                    ${!sel && !disabled && todayCell ? 'text-[#C4A94D] border border-[#C4A94D]' : ''}
+                    ${!sel && !disabled && !todayCell ? 'text-charcoal hover:bg-[#C4A94D]/10' : ''}
                   `}
                 >
                   {cell.day}
