@@ -14,10 +14,7 @@ export const visitorsRouter = router({
       step: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const ip = input.ip ||
-        (ctx.req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
-        ctx.req.socket.remoteAddress ||
-        'unknown';
+      const ip = input.ip || ctx.clientIp;
 
       const existing = await db.visitor.findUnique({ where: { sessionId: input.sessionId } });
 
