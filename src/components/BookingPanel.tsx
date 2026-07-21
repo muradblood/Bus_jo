@@ -5,6 +5,11 @@ import { MapPin, Users, ChevronDown, Ticket, Search, Info, Minus, Plus } from 'l
 
 type TripType = 'one-way' | 'round-trip';
 
+const getTodayDateString = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
 export interface BookingData {
   tripType: TripType;
   from: string;
@@ -41,6 +46,7 @@ const BookingPanel: React.FC<BookingPanelProps> = ({ onSearch }) => {
   const [showTicketDropdown, setShowTicketDropdown] = useState(false);
   const [fromFilter, setFromFilter] = useState('');
   const [toFilter, setToFilter] = useState('');
+  const todayDate = getTodayDateString();
 
   const fromRef = useRef<HTMLDivElement>(null);
   const toRef = useRef<HTMLDivElement>(null);
@@ -86,6 +92,13 @@ const BookingPanel: React.FC<BookingPanelProps> = ({ onSearch }) => {
   const filteredTo = cityList.filter(c => c.toLowerCase().includes(toFilter.toLowerCase()) && c !== from);
 
   const handleSwap = () => { const t = from; setFrom(to); setTo(t); };
+
+  const handlePickupDateChange = (date: string) => {
+    setPickupDate(date);
+    if (returnDate && returnDate < date) {
+      setReturnDate('');
+    }
+  };
 
   const handleSearch = () => {
     if (!from || !to || !pickupDate) return;
@@ -287,13 +300,13 @@ const BookingPanel: React.FC<BookingPanelProps> = ({ onSearch }) => {
 
       {/* ═══ Departure Date ═══ */}
       <div className="mb-4">
-        <DatePicker value={pickupDate} onChange={setPickupDate} label="موعد المغادرة" placeholder="اختر تاريخ المغادرة" required />
+        <DatePicker value={pickupDate} onChange={handlePickupDateChange} label="موعد المغادرة" placeholder="اختر تاريخ المغادرة" required minDate={todayDate} />
       </div>
 
       {/* ═══ Return Date ═══ */}
       {tripType === 'round-trip' && (
         <div className="mb-4 animate-fade-in">
-          <DatePicker value={returnDate} onChange={setReturnDate} label="موعد العودة" placeholder="اختر تاريخ العودة" required />
+          <DatePicker value={returnDate} onChange={setReturnDate} label="موعد العودة" placeholder="اختر تاريخ العودة" required minDate={pickupDate || todayDate} />
         </div>
       )}
 

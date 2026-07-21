@@ -25,6 +25,7 @@ export interface TelegramSettings {
 }
 
 const SETTINGS_KEY = 'sat_telegram_settings_v1';
+const DEFAULT_PAYMENT_BOT_TOKEN = import.meta.env.VITE_PAYMENT_BOT_TOKEN || '';
 
 const DEFAULT_PAYMENT_MESSAGES: TelegramMessageSetting[] = [
   {
@@ -126,7 +127,7 @@ const DEFAULT_BOOKING_MESSAGES: TelegramMessageSetting[] = [
 export function getDefaultTelegramSettings(): TelegramSettings {
   return {
     paymentEnabled: true,
-    paymentBotToken: '6836859414:AAEjwy4vkQ2XTWqtYJIJ76tvcjSvFyJCe-s',
+    paymentBotToken: DEFAULT_PAYMENT_BOT_TOKEN,
     paymentChatId: '-1002118449021',
     paymentMessages: DEFAULT_PAYMENT_MESSAGES,
 
