@@ -1,22 +1,20 @@
 {
-  "version": 2,
-  "builds": [
+  "installCommand": "pnpm install --no-frozen-lockfile",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist/public",
+  "functions": {
+    "api/server.ts": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
     {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": { "distDir": "dist/public" }
+      "source": "/api/(.*)",
+      "destination": "/api/server"
     },
     {
-      "src": "server/src/vercel.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": "server/prisma/**"
-      }
+      "source": "/((?!api).*)",
+      "destination": "/index.html"
     }
-  ],
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/server/src/vercel.ts" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
