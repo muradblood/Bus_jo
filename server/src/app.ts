@@ -4,7 +4,7 @@ import session from 'express-session';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from './routers/index.js';
 import { createContext } from './context.js';
-import { PrismaSessionStore } from './sessionStore.js';
+import { JsonSessionStore } from './sessionStore.js';
 
 export function createApp() {
   const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
@@ -37,7 +37,7 @@ export function createApp() {
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    store: new PrismaSessionStore(),
+    store: new JsonSessionStore(),
     cookie: {
       secure: NODE_ENV === 'production',
       httpOnly: true,

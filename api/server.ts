@@ -4,6 +4,7 @@ import session from 'express-session';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from '../server/src/routers/index.js';
 import { createContext } from '../server/src/context.js';
+import { JsonSessionStore } from '../server/src/sessionStore.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
 const NODE_ENV = process.env.NODE_ENV || 'production';
@@ -36,6 +37,7 @@ app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
+  store: new JsonSessionStore(),
   cookie: {
     secure: NODE_ENV === 'production',
     httpOnly: true,
