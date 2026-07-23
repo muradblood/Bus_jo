@@ -6,7 +6,14 @@ export function getOrCreateVisitorSessionId() {
     return existing;
   }
 
-  const sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const randomPart = typeof crypto !== 'undefined'
+    ? typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().replace(/-/g, '').slice(0, 12)
+      : Array.from(crypto.getRandomValues(new Uint8Array(6)))
+          .map((value) => value.toString(16).padStart(2, '0'))
+          .join('')
+    : `${Date.now().toString(16)}${performance.now().toString(16).replace('.', '')}`;
+  const sessionId = `sess_${Date.now()}_${randomPart}`;
   localStorage.setItem(VISITOR_SESSION_KEY, sessionId);
   return sessionId;
 }
