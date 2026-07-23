@@ -6,7 +6,7 @@ import {
   Download, Ban, Plus, Trash2, Eye, EyeOff,
   Bus, Send, Shield, Bell, Globe, ToggleLeft, ToggleRight, Info,
   CreditCard, Landmark, Edit3, Save, RotateCcw, Palette, Star, Briefcase,
-  Lock, Check,
+  Lock, Check, Wifi, WifiOff,
 } from 'lucide-react';
 import { GULF_COUNTRIES, COUNTRY_NAMES, getStoredSettings, saveSettings, clearGeoCache, defaultSettings, type GeoBlockSettings } from '@/hooks/useGeoBlock';
 import { getPaymentBotToken, getPaymentChatId, setPaymentBotToken, setPaymentChatId, resetPaymentDefaults } from '@/lib/payment-telegram';
@@ -19,6 +19,7 @@ import { seedBanks, loadStoredBanks, saveStoredBanks, type StoredBank } from '@/
 import { getStepLabel, getStepColor } from '@/lib/visitor-tracking';
 import type { VisitorStep } from '@/lib/visitor-tracking';
 import { trpc } from '@/providers/trpc';
+import { socket } from '@/lib/socket';
 
 type AdminTab = 'dashboard' | 'bookings' | 'cities' | 'prices' | 'visitors' | 'settings' | 'banks' | 'design' | 'telegram';
 
@@ -106,6 +107,7 @@ const AdminDashboard: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [socketConnected, setSocketConnected] = useState(socket.connected);
 
   // Auth check via tRPC with localStorage fallback
   const { data: meData, isLoading: authLoading } = trpc.auth.me.useQuery(undefined, { retry: false });
@@ -117,6 +119,29 @@ const AdminDashboard: React.FC = () => {
   });
   const localToken = localStorage.getItem('admin_token');
   const isAuthenticated = (meData && (meData as { id?: number }).id) || localToken === 'sat_admin_2024';
+
+  // Socket.IO: join the admin room and track connection status
+  useEffect(() => {
+    const onConnect = () => {
+      setSocketConnected(true);
+      socket.emit('join_admin');
+    };
+    const onDisconnect = () => setSocketConnected(false);
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+
+    // If already connected on mount, join admin room immediately
+    if (socket.connected) {
+      setSocketConnected(true);
+      socket.emit('join_admin');
+    }
+
+    return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+    };
+  }, []);
 
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
@@ -218,6 +243,18 @@ const AdminDashboard: React.FC = () => {
           </button>
           <h2 className="text-lg font-bold text-charcoal">{navItems.find(n => n.id === activeTab)?.label}</h2>
           <div className="flex items-center gap-2">
+            {/* Socket.IO connection indicator */}
+            <div
+              title={socketConnected ? 'متصل — تحديث فوري نشط' : 'غير متصل — وضع الاستطلاع'}
+              className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold ${
+                socketConnected
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-gray-100 text-gray-500'
+              }`}
+            >
+              {socketConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+              <span className="hidden sm:inline">{socketConnected ? 'مباشر' : 'استطلاع'}</span>
+            </div>
             <button className="relative w-9 h-9 rounded-full bg-[#F5F3EF] flex items-center justify-center text-[#8A7E6B]">
               <Bell className="w-4 h-4" />
               <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2 border-white" />
@@ -575,8 +612,23 @@ function BanksTab() {
 
 /* ═════ Dashboard Tab ════════════════════ */
 function DashboardTab() {
+  const utils = trpc.useUtils();
   const { data: dbStats } = trpc.admin.stats.useQuery(undefined, { refetchInterval: 10000 });
   const { data: dbBookings = [] } = trpc.admin.bookings.useQuery(undefined, { refetchInterval: 10000 });
+
+  // Socket.IO: refresh data instantly when a new booking arrives
+  useEffect(() => {
+    const onNewBooking = () => {
+      utils.admin.stats.invalidate();
+      utils.admin.bookings.invalidate();
+    };
+    socket.on('new_booking', onNewBooking);
+    socket.on('booking_status_changed', onNewBooking);
+    return () => {
+      socket.off('new_booking', onNewBooking);
+      socket.off('booking_status_changed', onNewBooking);
+    };
+  }, [utils]);
 
   // Fallback to localStorage if backend offline
   const localBookings = getStoredBookings();
@@ -717,6 +769,17 @@ function BookingsTab() {
   const updateStatusMutation = trpc.admin.updateBookingStatus.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
   const deleteBookingMutation = trpc.bookings.delete.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
   const markAllSeenMutation = trpc.admin.markAllBookingsSeen.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
+
+  // Socket.IO: refresh instantly when a booking event arrives
+  useEffect(() => {
+    const refresh = () => utils.admin.bookings.invalidate();
+    socket.on('new_booking', refresh);
+    socket.on('booking_status_changed', refresh);
+    return () => {
+      socket.off('new_booking', refresh);
+      socket.off('booking_status_changed', refresh);
+    };
+  }, [utils]);
 
   // Fallback to localStorage if backend offline
   const localBookings = getStoredBookings();
@@ -1328,6 +1391,18 @@ function VisitorsTab() {
   const blockMutation = trpc.visitors.blockVisitor.useMutation({ onSuccess: () => utils.visitors.list.invalidate() });
   const redirectMutation = trpc.visitors.setRedirectUrl.useMutation({ onSuccess: () => utils.visitors.list.invalidate() });
 
+  // Socket.IO: refresh visitors instantly when a visitor update arrives
+  useEffect(() => {
+    const onVisitorUpdate = () => {
+      utils.visitors.list.invalidate();
+      utils.visitors.stats.invalidate();
+    };
+    socket.on('visitor_update', onVisitorUpdate);
+    return () => {
+      socket.off('visitor_update', onVisitorUpdate);
+    };
+  }, [utils]);
+
   const now = Date.now();
   const fiveMinAgo = now - 5 * 60 * 1000;
 
@@ -1343,7 +1418,7 @@ function VisitorsTab() {
   const activeCount = visitorStats?.active ?? activeVisitors.length;
   const blockedCount = visitorStats?.blocked ?? blockedVisitors.length;
 
-  // Refresh is now handled by tRPC refetchInterval
+  // Refresh is now handled by socket events + tRPC refetchInterval as fallback
   const refresh = () => utils.visitors.list.invalidate();
 
   const handleBlock = (sessionId: string) => {

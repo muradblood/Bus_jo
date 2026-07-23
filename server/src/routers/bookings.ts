@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { emitNewBooking, emitBookingStatusChanged } from '../socket.js';
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -86,6 +87,8 @@ export const bookingsRouter = router({
     .input(bookingCreateInput)
     .mutation(async ({ input }) => {
       const booking = await db.booking.create({ data: input });
+      // Notify admin dashboard in real-time
+      emitNewBooking(booking as unknown as Record<string, unknown>);
       return booking;
     }),
 
@@ -113,7 +116,10 @@ export const bookingsRouter = router({
       if (data.paymentMethod !== undefined) update.paymentMethod = data.paymentMethod;
       if (data.paymentStatus !== undefined) update.paymentStatus = data.paymentStatus;
       if (data.totalAmount !== undefined) update.totalAmount = data.totalAmount;
-      if (data.status !== undefined) update.status = data.status;
+      if (data.status !== undefined) {
+        update.status = data.status;
+        emitBookingStatusChanged({ id, status: data.status });
+      }
       const booking = await db.booking.update({ where: { id }, data: update });
       return booking;
     }),
