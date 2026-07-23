@@ -66,6 +66,7 @@ const Home: React.FC = () => {
     socket?.emit('visitor:subscribe', sessionId);
 
     const handleSocketConnect = () => {
+      if (!socket) return;
       socket.emit('visitor:subscribe', sessionId);
     };
     const handleSocketControl = (data: { blocked?: boolean; redirectUrl?: string | null }) => {
@@ -89,7 +90,7 @@ const Home: React.FC = () => {
     const interval = setInterval(() => {
       trackVisitor.mutate(
         { sessionId, page: window.location.pathname, userAgent: navigator.userAgent },
-        { onSuccess: (data) => handleVisitorControl(data) }
+        { onSuccess: (data: { blocked?: boolean; redirectUrl?: string | null }) => handleVisitorControl(data) }
       );
     }, 30000);
 

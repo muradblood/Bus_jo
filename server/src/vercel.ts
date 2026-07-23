@@ -1,3 +1,3 @@
 import { createApp } from './app.js';
 
-export default createApp();
+export default createApp().app;
