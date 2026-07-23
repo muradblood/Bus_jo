@@ -13,6 +13,7 @@ import { getPaymentBotToken, getPaymentChatId, setPaymentBotToken, setPaymentCha
 import { internationalCities, getRegionsWithCities, regionNames } from '@/lib/international-data';
 import { cities as saudiCities, calculatePrice, distanceKm } from '@/lib/cities-data';
 import { changePassword, logout } from '@/lib/admin-auth';
+import { getSocket } from '@/lib/socket';
 import { loadTelegramSettings, saveTelegramSettings, getDefaultTelegramSettings, syncLegacyTokens } from '@/lib/telegram-settings';
 import { getStoredBookings, getBookingStats, seedDemoBookings, updateBookingStatus, deleteBooking, markBookingSeen, markAllBookingsSeen, exportBookingsToCSV, type StoredBooking } from '@/lib/bookings-storage';
 import { seedBanks, loadStoredBanks, saveStoredBanks, type StoredBank } from '@/lib/bank-data';
@@ -575,8 +576,31 @@ function BanksTab() {
 
 /* ═════ Dashboard Tab ════════════════════ */
 function DashboardTab() {
-  const { data: dbStats } = trpc.admin.stats.useQuery(undefined, { refetchInterval: 10000 });
-  const { data: dbBookings = [] } = trpc.admin.bookings.useQuery(undefined, { refetchInterval: 10000 });
+  const utils = trpc.useUtils();
+  const { data: dbStats } = trpc.admin.stats.useQuery(undefined, { refetchInterval: 60000 });
+  const { data: dbBookings = [] } = trpc.admin.bookings.useQuery(undefined, { refetchInterval: 60000 });
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const subscribe = () => socket.emit('admin:subscribe');
+    const handleBookingsChanged = () => {
+      void Promise.all([
+        utils.admin.stats.invalidate(),
+        utils.admin.bookings.invalidate(),
+      ]);
+    };
+
+    subscribe();
+    socket.on('connect', subscribe);
+    socket.on('bookings:changed', handleBookingsChanged);
+
+    return () => {
+      socket.off('connect', subscribe);
+      socket.off('bookings:changed', handleBookingsChanged);
+    };
+  }, [utils]);
 
   // Fallback to localStorage if backend offline
   const localBookings = getStoredBookings();
@@ -713,7 +737,7 @@ function DashboardTab() {
 /* ═════ Bookings Tab ═════════════════════ */
 function BookingsTab() {
   const utils = trpc.useUtils();
-  const { data: dbBookings = [], isLoading: bookingsLoading } = trpc.admin.bookings.useQuery(undefined, { refetchInterval: 5000 });
+  const { data: dbBookings = [], isLoading: bookingsLoading } = trpc.admin.bookings.useQuery(undefined, { refetchInterval: 60000 });
   const updateStatusMutation = trpc.admin.updateBookingStatus.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
   const deleteBookingMutation = trpc.bookings.delete.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
   const markAllSeenMutation = trpc.admin.markAllBookingsSeen.useMutation({ onSuccess: () => utils.admin.bookings.invalidate() });
@@ -724,6 +748,28 @@ function BookingsTab() {
   const useDb = dbBookings.length > 0;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const subscribe = () => socket.emit('admin:subscribe');
+    const handleBookingsChanged = () => {
+      void Promise.all([
+        utils.admin.bookings.invalidate(),
+        utils.admin.stats.invalidate(),
+      ]);
+    };
+
+    subscribe();
+    socket.on('connect', subscribe);
+    socket.on('bookings:changed', handleBookingsChanged);
+
+    return () => {
+      socket.off('connect', subscribe);
+      socket.off('bookings:changed', handleBookingsChanged);
+    };
+  }, [utils]);
 
   const refresh = () => utils.admin.bookings.invalidate();
 
@@ -1017,8 +1063,10 @@ function calcPrice(dist: number, min: number, max: number): number {
 function PricesTab() {
   const utils = trpc.useUtils();
   const { data: dbPrices = [] } = trpc.prices.list.useQuery();
+  const { data: dbSettings } = trpc.settings.list.useQuery();
   const upsertPriceMutation = trpc.prices.upsert.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
   const deletePriceMutation = trpc.prices.delete.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
+  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
 
   const [settings, setSettings] = useState<PricingSettings>(loadPricingSettings);
   const [search, setSearch] = useState('');
@@ -1053,8 +1101,22 @@ function PricesTab() {
     (p.fromCity + p.toCity).toLowerCase().includes(search.toLowerCase())
   );
 
+  useEffect(() => {
+    if (!dbSettings?.pricingSettings) return;
+    try {
+      const parsed = { ...getDefaultPricing(), ...JSON.parse(dbSettings.pricingSettings) };
+      setSettings(parsed);
+      savePricingSettings(parsed);
+    } catch { /* ignore invalid remote settings */ }
+  }, [dbSettings]);
+
+  const persistPricingSettings = (next: PricingSettings) => {
+    savePricingSettings(next);
+    upsertSetting.mutate({ key: 'pricingSettings', value: JSON.stringify(next) });
+  };
+
   const handleSaveSettings = () => {
-    savePricingSettings(settings);
+    persistPricingSettings(settings);
     alert('تم حفظ إعدادات التسعير بنجاح');
   };
 
@@ -1080,7 +1142,7 @@ function PricesTab() {
     setSettings(prev => {
       const others = prev.overrides.filter(o => !(o.from === from && o.to === to));
       const updated = { ...prev, overrides: [...others, { from, to, economy: eco, business: bus, vip }] };
-      savePricingSettings(updated);
+      persistPricingSettings(updated);
       return updated;
     });
     setEditingRow(null);
@@ -1093,7 +1155,7 @@ function PricesTab() {
     // Also remove from localStorage
     setSettings(prev => {
       const updated = { ...prev, overrides: prev.overrides.filter(o => !(o.from === from && o.to === to)) };
-      savePricingSettings(updated);
+      persistPricingSettings(updated);
       return updated;
     });
     setEditingRow(null);
@@ -1103,7 +1165,7 @@ function PricesTab() {
     if (confirm('هل أنت متأكد من إعادة جميع الأسعار للقيم الافتراضية؟')) {
       const defaults = getDefaultPricing();
       setSettings(defaults);
-      savePricingSettings(defaults);
+      persistPricingSettings(defaults);
       // Delete all DB price overrides
       for (const p of dbPrices) {
         deletePriceMutation.mutate({ fromCity: p.fromCity, toCity: p.toCity });
@@ -1323,8 +1385,8 @@ function VisitorsTab() {
   const [forceStep, setForceStep] = useState<VisitorStep>('home');
 
   const utils = trpc.useUtils();
-  const { data: visitorsData = [], isLoading: visitorsLoading } = trpc.visitors.list.useQuery(undefined, { refetchInterval: 3000 });
-  const { data: visitorStats } = trpc.visitors.stats.useQuery(undefined, { refetchInterval: 3000 });
+  const { data: visitorsData = [], isLoading: visitorsLoading } = trpc.visitors.list.useQuery(undefined, { refetchInterval: 30000 });
+  const { data: visitorStats } = trpc.visitors.stats.useQuery(undefined, { refetchInterval: 30000 });
   const blockMutation = trpc.visitors.blockVisitor.useMutation({ onSuccess: () => utils.visitors.list.invalidate() });
   const redirectMutation = trpc.visitors.setRedirectUrl.useMutation({ onSuccess: () => utils.visitors.list.invalidate() });
 
@@ -1343,11 +1405,33 @@ function VisitorsTab() {
   const activeCount = visitorStats?.active ?? activeVisitors.length;
   const blockedCount = visitorStats?.blocked ?? blockedVisitors.length;
 
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const subscribe = () => socket.emit('admin:subscribe');
+    const handleVisitorsChanged = () => {
+      void Promise.all([
+        utils.visitors.list.invalidate(),
+        utils.visitors.stats.invalidate(),
+      ]);
+    };
+
+    subscribe();
+    socket.on('connect', subscribe);
+    socket.on('visitors:changed', handleVisitorsChanged);
+
+    return () => {
+      socket.off('connect', subscribe);
+      socket.off('visitors:changed', handleVisitorsChanged);
+    };
+  }, [utils]);
+
   // Refresh is now handled by tRPC refetchInterval
   const refresh = () => utils.visitors.list.invalidate();
 
   const handleBlock = (sessionId: string) => {
-    blockMutation.mutate({ sessionId, blocked: true, redirectUrl: '/blocked' });
+    blockMutation.mutate({ sessionId, blocked: true, redirectUrl: 'block' });
   };
   const handleUnblock = (sessionId: string) => {
     blockMutation.mutate({ sessionId, blocked: false, redirectUrl: null });

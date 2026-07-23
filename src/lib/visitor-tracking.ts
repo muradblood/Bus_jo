@@ -2,6 +2,8 @@
 //  Visitor Tracking System — Full Step-by-Step + IP + Controls
 // ═══════════════════════════════════════════════════════════════
 
+import { getOrCreateVisitorSessionId } from './visitor-session';
+
 export type VisitorStep =
   | 'home' | 'search' | 'results' | 'trip_details'
   | 'seat_selection' | 'passenger_info' | 'payment_method'
@@ -119,7 +121,7 @@ let _sessionId: string | null = null;
 
 function getSessionKey(): string {
   if (!_sessionId) {
-    _sessionId = 'v_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    _sessionId = getOrCreateVisitorSessionId();
   }
   return SESSION_PREFIX + _sessionId;
 }

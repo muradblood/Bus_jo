@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { getIO } from '../io.js';
 
 const DEFAULT_SETTINGS: Record<string, string> = {
   siteName: 'سات للنقل',
@@ -36,11 +37,13 @@ export const settingsRouter = router({
   upsert: adminProcedure
     .input(z.object({ key: z.string(), value: z.string() }))
     .mutation(async ({ input }) => {
-      return db.setting.upsert({
+      const setting = await db.setting.upsert({
         where: { key: input.key },
         update: { value: input.value },
         create: { key: input.key, value: input.value },
       });
+      getIO()?.emit('settings:updated', { key: input.key });
+      return setting;
     }),
 
   getTelegramToken: publicProcedure.query(async () => {

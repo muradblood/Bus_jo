@@ -6,10 +6,7 @@ import { appRouter } from './routers/index.js';
 import { createContext } from './context.js';
 import { JsonSessionStore } from './sessionStore.js';
 
-export function createApp() {
-  const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
-  const NODE_ENV = process.env.NODE_ENV || 'development';
-
+export function getAllowedOrigins() {
   const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:5173',
@@ -24,16 +21,16 @@ export function createApp() {
     allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
   }
 
+  return allowedOrigins;
+}
+
+export function createApp() {
+  const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
+  const NODE_ENV = process.env.NODE_ENV || 'development';
+  const allowedOrigins = getAllowedOrigins();
+
   const app = express();
-
-  app.use(cors({
-    origin: allowedOrigins,
-    credentials: true,
-  }));
-
-  app.use(express.json());
-
-  app.use(session({
+  const sessionMiddleware = session({
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
@@ -44,7 +41,15 @@ export function createApp() {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       sameSite: 'lax',
     },
+  });
+
+  app.use(cors({
+    origin: allowedOrigins,
+    credentials: true,
   }));
+
+  app.use(express.json());
+  app.use(sessionMiddleware);
 
   app.use(
     '/api/trpc',
@@ -58,5 +63,5 @@ export function createApp() {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  return app;
+  return { app, sessionMiddleware, allowedOrigins };
 }

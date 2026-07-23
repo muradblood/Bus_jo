@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { getIO } from '../io.js';
 
 // Haversine distance calculation
 function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -130,11 +131,13 @@ export const pricesRouter = router({
     }))
     .mutation(async ({ input }) => {
       const { borderCrossings, ...rest } = input;
-      return db.price.upsert({
+      const price = await db.price.upsert({
         where: { fromCity_toCity: { fromCity: input.fromCity, toCity: input.toCity } },
         update: { ...rest, borderCrossings: JSON.stringify(borderCrossings) },
         create: { ...rest, borderCrossings: JSON.stringify(borderCrossings) },
       });
+      getIO()?.to('admin').emit('prices:updated');
+      return price;
     }),
 
   delete: adminProcedure
@@ -148,6 +151,7 @@ export const pricesRouter = router({
           ],
         },
       });
+      getIO()?.to('admin').emit('prices:updated');
       return { success: true };
     }),
 });

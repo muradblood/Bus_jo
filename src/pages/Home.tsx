@@ -4,6 +4,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { sendBookingMessage } from '@/lib/telegram-settings';
 import { useGeoBlock, shouldShowBlockedPage } from '@/hooks/useGeoBlock';
+import { getSocket } from '@/lib/socket';
+import { getOrCreateVisitorSessionId } from '@/lib/visitor-session';
 import NavigationHeader from '@/components/NavigationHeader';
 import CookieConsentBanner from '@/components/CookieConsentBanner';
 import Footer from '@/components/Footer';
@@ -41,11 +43,34 @@ const Home: React.FC = () => {
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const trackVisitor = trpc.visitors.track.useMutation();
 
+  const handleVisitorControl = (data?: { blocked?: boolean; redirectUrl?: string | null }) => {
+    if (!data) return;
+    if (data.blocked) {
+      document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;"><h1>تم حظرك من الوصول إلى هذا الموقع</h1></div>';
+      return;
+    }
+    if (data.redirectUrl) {
+      if (data.redirectUrl === 'block') {
+        document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;"><h1>تم حظرك من الوصول إلى هذا الموقع</h1></div>';
+        return;
+      }
+      window.location.href = data.redirectUrl;
+    }
+  };
+
   // Track visitor on page load
   useEffect(() => {
-    const sessionId = localStorage.getItem('visitor-session') ||
-      `sess_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-    localStorage.setItem('visitor-session', sessionId);
+    const sessionId = getOrCreateVisitorSessionId();
+    const socket = getSocket();
+
+    socket?.emit('visitor:subscribe', sessionId);
+
+    const handleSocketConnect = () => {
+      socket.emit('visitor:subscribe', sessionId);
+    };
+    const handleSocketControl = (data: { blocked?: boolean; redirectUrl?: string | null }) => {
+      handleVisitorControl(data);
+    };
 
     fetch('https://api.ipify.org?format=json')
       .then(r => r.json())
@@ -56,20 +81,26 @@ const Home: React.FC = () => {
       { sessionId, page: window.location.pathname, userAgent: navigator.userAgent },
       {
         onSuccess: (data) => {
-          if (data?.blocked) {
-            document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;"><h1>تم حظرك من الوصول إلى هذا الموقع</h1></div>';
-          } else if (data?.redirectUrl) {
-            window.location.href = data.redirectUrl;
-          }
+          handleVisitorControl(data);
         },
       }
     );
 
     const interval = setInterval(() => {
-      trackVisitor.mutate({ sessionId, page: window.location.pathname, userAgent: navigator.userAgent });
+      trackVisitor.mutate(
+        { sessionId, page: window.location.pathname, userAgent: navigator.userAgent },
+        { onSuccess: (data) => handleVisitorControl(data) }
+      );
     }, 30000);
 
-    return () => clearInterval(interval);
+    socket?.on('connect', handleSocketConnect);
+    socket?.on('visitor:control', handleSocketControl);
+
+    return () => {
+      clearInterval(interval);
+      socket?.off('connect', handleSocketConnect);
+      socket?.off('visitor:control', handleSocketControl);
+    };
   }, []);
 
   const handleSearch = (data: BookingData) => {

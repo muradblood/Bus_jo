@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { getIO } from '../io.js';
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -86,6 +87,7 @@ export const bookingsRouter = router({
     .input(bookingCreateInput)
     .mutation(async ({ input }) => {
       const booking = await db.booking.create({ data: input });
+      getIO()?.to('admin').emit('bookings:changed');
       return booking;
     }),
 
@@ -115,6 +117,7 @@ export const bookingsRouter = router({
       if (data.totalAmount !== undefined) update.totalAmount = data.totalAmount;
       if (data.status !== undefined) update.status = data.status;
       const booking = await db.booking.update({ where: { id }, data: update });
+      getIO()?.to('admin').emit('bookings:changed');
       return booking;
     }),
 

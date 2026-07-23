@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { getIO } from '../io.js';
 
 export const adminRouter = router({
   stats: adminProcedure.query(async () => {
@@ -74,19 +75,23 @@ export const adminRouter = router({
   updateBookingStatus: adminProcedure
     .input(z.object({ id: z.number(), status: z.string() }))
     .mutation(async ({ input }) => {
-      return db.booking.update({ where: { id: input.id }, data: { status: input.status } });
+      const booking = await db.booking.update({ where: { id: input.id }, data: { status: input.status } });
+      getIO()?.to('admin').emit('bookings:changed');
+      return booking;
     }),
 
   markBookingSeen: adminProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       await db.booking.update({ where: { id: input.id }, data: { isNew: false } });
+      getIO()?.to('admin').emit('bookings:changed');
       return { success: true };
     }),
 
   markAllBookingsSeen: adminProcedure
     .mutation(async () => {
       await db.booking.updateMany({ where: { isNew: true }, data: { isNew: false } });
+      getIO()?.to('admin').emit('bookings:changed');
       return { success: true };
     }),
 });

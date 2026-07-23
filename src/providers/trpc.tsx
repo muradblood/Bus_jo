@@ -3,6 +3,7 @@ import { httpBatchLink } from "@trpc/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AppRouter } from "@/types/router";
 import { type ReactNode, useEffect } from "react";
+import { getSocket } from "@/lib/socket";
 
 export const trpc = createTRPCReact<AppRouter>();
 
@@ -10,6 +11,7 @@ export const trpc = createTRPCReact<AppRouter>();
 // synchronous code (telegram sending, bank detection, geo-block)
 // always uses the latest admin-configured values.
 function SettingsSyncInner() {
+  const utils = trpc.useUtils();
   const { data: settings } = trpc.settings.list.useQuery(undefined, {
     staleTime: 5 * 60 * 1000,
   });
@@ -26,8 +28,26 @@ function SettingsSyncInner() {
       if (settings.geoBlockSettings) {
         localStorage.setItem("geoblock_settings_v2", settings.geoBlockSettings);
       }
+      if (settings.pricingSettings) {
+        localStorage.setItem("sat_pricing_settings_v3", settings.pricingSettings);
+      }
     } catch { /* ignore storage errors */ }
   }, [settings]);
+
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    const handleSettingsUpdated = () => {
+      void utils.settings.list.invalidate();
+    };
+
+    socket.on("settings:updated", handleSettingsUpdated);
+
+    return () => {
+      socket.off("settings:updated", handleSettingsUpdated);
+    };
+  }, [utils]);
 
   return null;
 }
