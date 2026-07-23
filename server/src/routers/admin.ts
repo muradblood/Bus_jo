@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { emitBookingStatusChanged } from '../socket.js';
 
 export const adminRouter = router({
   stats: adminProcedure.query(async () => {
@@ -74,7 +75,9 @@ export const adminRouter = router({
   updateBookingStatus: adminProcedure
     .input(z.object({ id: z.number(), status: z.string() }))
     .mutation(async ({ input }) => {
-      return db.booking.update({ where: { id: input.id }, data: { status: input.status } });
+      const booking = await db.booking.update({ where: { id: input.id }, data: { status: input.status } });
+      emitBookingStatusChanged({ id: input.id, status: input.status });
+      return booking;
     }),
 
   markBookingSeen: adminProcedure
