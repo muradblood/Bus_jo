@@ -1,4 +1,4 @@
-Warning: truncated output (original token count: 37423)
+Warning: truncated output (original token count: 37433)
 Total output lines: 2775
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -1016,9 +1016,9 @@ function CitiesTab() {
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-brand-gold/10 flex items-center justify-center"><MapPin className="w-4 h-4 text-brand-gold" /></div>
                 <div>
-                  <span className="text-charcoal font-bold text-sm">{city.displayName}</s…7423 tokens truncated…<span className="text-[#8A7E6B]">التاريخ</span><span className="font-bold text-charcoal">{bd.date}</span></div>
+                  <span className="text-charcoal font-bold text-sm">{city.displayName}</s…7433 tokens truncated…ريخ</span><span className="font-bold text-charcoal">{bd.date}</span></div>
                     )}
-                    {bd.passengers && (
+                    {bd.passengers !== undefined && bd.passengers !== null && (
                       <div className="flex justify-between"><span className="text-[#8A7E6B]">المسافرين</span><span className="font-bold text-charcoal">{String(bd.passengers)}</span></div>
                     )}
                     {bd.selectedTrip && (

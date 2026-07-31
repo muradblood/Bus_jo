@@ -46,7 +46,9 @@ export function useAuth(options?: UseAuthOptions) {
 
   return useMemo(
     () => ({
-      user: user ?? null,
+      // The current server returns the core admin fields. Keep optional profile
+      // fields typed for the existing shared layout without changing runtime data.
+      user: (user as (typeof user & { name?: string; email?: string; role?: string })) ?? null,
       isAuthenticated: !!user,
       isLoading: isLoading || logoutMutation.isPending,
       error,
