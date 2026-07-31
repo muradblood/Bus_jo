@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { emitVisitorUpdate } from '../socket.js';
 
 export const visitorsRouter = router({
   track: publicProcedure
@@ -53,6 +54,15 @@ export const visitorsRouter = router({
           currentStep: input.step ?? 'home',
           stepHistory: JSON.stringify(input.step ? [{ step: input.step, time: Date.now() }] : []),
         },
+      });
+
+      // Notify admin dashboard in real-time
+      emitVisitorUpdate({
+        sessionId: input.sessionId,
+        page: input.page,
+        ip,
+        currentStep: input.step ?? 'home',
+        lastActive: new Date().toISOString(),
       });
 
       return { blocked: false, redirectUrl: null };

@@ -37,7 +37,7 @@ async function notifySearch(data: BookingData) {
 const Home: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { geo, canBook } = useGeoBlock();
+  useGeoBlock();
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const trackVisitor = trpc.visitors.track.useMutation();
 
