@@ -2,9 +2,7 @@ import { io, Socket } from 'socket.io-client';
 
 // Connect to the backend Socket.IO server.
 // In development, Vite proxies /socket.io → localhost:3001.
-// In production (Vercel), this will fall back gracefully: Socket.IO
-// cannot connect to a serverless function, so the socket stays
-// disconnected and the dashboard uses tRPC polling as a fallback.
+// In production, Nginx proxies /socket.io to the persistent Node.js server.
 const SOCKET_URL =
   import.meta.env.MODE === 'development'
     ? 'http://localhost:3001'
@@ -16,7 +14,8 @@ export const socket: Socket = io(SOCKET_URL, {
   // Don't block the app if Socket.IO is unavailable.
   reconnectionAttempts: 5,
   reconnectionDelay: 2000,
-  autoConnect: true,
+  // Only the admin dashboard needs a socket connection.
+  autoConnect: false,
   // Do not throw on connection errors — dashboard gracefully falls back to polling.
   timeout: 5000,
 });

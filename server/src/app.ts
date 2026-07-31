@@ -5,11 +5,28 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from './routers/index.js';
 import { createContext } from './context.js';
 import { JsonSessionStore } from './sessionStore.js';
+import type { RequestHandler } from 'express';
 
-export function createApp() {
+export function createSessionMiddleware(): RequestHandler {
   const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
   const NODE_ENV = process.env.NODE_ENV || 'development';
 
+  return session({
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    store: new JsonSessionStore(),
+    cookie: {
+      secure: NODE_ENV === 'production',
+      httpOnly: true,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      sameSite: 'lax',
+    },
+  });
+}
+
+export function createApp(sessionMiddleware = createSessionMiddleware()) {
+  const NODE_ENV = process.env.NODE_ENV || 'development';
   const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:5173',
@@ -26,6 +43,11 @@ export function createApp() {
 
   const app = express();
 
+  if (NODE_ENV === 'production') {
+    // FastPanel/Nginx terminates HTTPS before forwarding to this process.
+    app.set('trust proxy', 1);
+  }
+
   app.use(cors({
     origin: allowedOrigins,
     credentials: true,
@@ -33,18 +55,7 @@ export function createApp() {
 
   app.use(express.json());
 
-  app.use(session({
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    store: new JsonSessionStore(),
-    cookie: {
-      secure: NODE_ENV === 'production',
-      httpOnly: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      sameSite: 'lax',
-    },
-  }));
+  app.use(sessionMiddleware);
 
   app.use(
     '/api/trpc',

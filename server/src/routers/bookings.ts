@@ -118,9 +118,11 @@ export const bookingsRouter = router({
       if (data.totalAmount !== undefined) update.totalAmount = data.totalAmount;
       if (data.status !== undefined) {
         update.status = data.status;
-        emitBookingStatusChanged({ id, status: data.status });
       }
       const booking = await db.booking.update({ where: { id }, data: update });
+      if (data.status !== undefined) {
+        emitBookingStatusChanged({ id, status: data.status });
+      }
       return booking;
     }),
 

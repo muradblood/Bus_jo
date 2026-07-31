@@ -1,13 +1,15 @@
+import 'dotenv/config';
 import { createServer } from 'http';
-import { createApp } from './app.js';
+import { createApp, createSessionMiddleware } from './app.js';
 import { initSocketIO } from './socket.js';
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
-const app = createApp();
+const sessionMiddleware = createSessionMiddleware();
+const app = createApp(sessionMiddleware);
 const httpServer = createServer(app);
 
-initSocketIO(httpServer);
+initSocketIO(httpServer, sessionMiddleware);
 
 httpServer.listen(PORT, () => {
   console.log(`🚌 SAT Bus Server running on http://localhost:${PORT}`);
