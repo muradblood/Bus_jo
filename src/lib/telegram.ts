@@ -1,4 +1,4 @@
-import { loadTelegramSettings, isBookingEnabled, fillTemplate } from './telegram-settings';
+import { isBookingEnabled } from './telegram-settings';
 
 /**
  * Telegram Bot Configuration

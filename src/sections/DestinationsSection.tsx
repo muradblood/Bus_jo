@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import SectionHeader from '@/components/SectionHeader';
 import { useScrollAnimation } from '@/hooks/useScrollAnimation';
-import { findRoute, countryFlags, countryNames } from '@/lib/international-data';
+import { countryFlags, countryNames } from '@/lib/international-data';
 import { useNavigate } from 'react-router';
 
 type Region = 'all' | 'gcc' | 'levant' | 'egypt' | 'north-africa' | 'africa';

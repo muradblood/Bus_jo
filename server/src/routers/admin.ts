@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { router, publicProcedure, adminProcedure } from '../trpc.js';
+import { router, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
 import { emitBookingStatusChanged } from '../socket.js';
 

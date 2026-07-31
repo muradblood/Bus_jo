@@ -4,7 +4,7 @@ import {
   Shield, Bus, Wifi, Coffee, Armchair, MonitorSmartphone,
   ArrowLeft, Clock, Phone, Headphones,
   CreditCard, Baby, Accessibility, Luggage,
-  Globe, Ban,
+  Ban,
 } from 'lucide-react';
 import NavigationHeader from '@/components/NavigationHeader';
 import Footer from '@/components/Footer';

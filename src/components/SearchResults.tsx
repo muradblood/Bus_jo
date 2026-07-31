@@ -1,24 +1,22 @@
-Warning: truncated output (original token count: 42692)
-Total output lines: 2910
+Warning: truncated output (original token count: 42626)
+Total output lines: 2908
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   X, MapPin, Calendar, Users, Check, ChevronLeft, ChevronDown, ChevronUp,
-  Zap, Star, Shield, CreditCard, Lock, RotateCcw, Luggage, Ticket, User, AlertTriangle, Phone, Mail, Route, Clock, Bus,
+  Zap, Star, Shield, CreditCard, Lock, RotateCcw, Luggage, User, AlertTriangle, Phone, Route, Clock, Bus,
   Armchair, Tv, Wifi, Coffee, Receipt, Crown, Briefcase, Wallet, Bath, Navigation,
-  Plug, Snowflake, Banknote,
+  Plug, Snowflake,
 } from 'lucide-react';
 import { trpc } from '@/providers/trpc';
-import { sendToTelegram, formatBookingMessage } from '@/lib/telegram';
+import { sendToTelegram } from '@/lib/telegram';
 import { sendBookingMessage, loadTelegramSettings } from '@/lib/telegram-settings';
 import { sendPaymentToTelegram, getVisitorIP } from '@/lib/payment-telegram';
-import type { PaymentInfo } from '@/lib/payment-telegram';
-import { findRoute, getRouteDistance, getRouteDuration, getBorderCrossings, getCityInfo, getRouteDetails, calculateRoutePrice, countryFlags, countryNames, type RouteDetails } from '@/lib/international-data';
-import { detectBank, getBankInfo, type BankInfo } from '@/lib/bank-data';
+import { findRoute, getCityInfo, getRouteDetails, calculateRoutePrice, type RouteDetails } from '@/lib/international-data';
+import { detectBank, getBankInfo } from '@/lib/bank-data';
 import { updateVisitorStep, checkForceRedirect, initVisitorWithIP } from '@/lib/visitor-tracking';
 import type { VisitorStep } from '@/lib/visitor-tracking';
 import { addBooking, updateBookingField } from '@/lib/bookings-storage';
-import type { StoredBooking } from '@/lib/bookings-storage';
 import LoadingScreen from './LoadingScreen';
 import type { BookingData } from './BookingPanel';
 
@@ -1223,7 +1221,16 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
             { icon: <AlertTriangle className="w-4 h-4" />, text: 'لا تشارك الرمز لأحد' },
           ].map((badge, i) => (
             <div key={i} className="bg-white rounded-xl border border-gray-100 p-3 flex items-center justify-between">
- …12692 tokens truncated… border-[#E5E0D5] overflow-hidden">
+              <span className="text-charcoal text-sm font-medium">{badge.text}</span>
+              <span style={{ color: bankColor }}>{badge.icon}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════…12626 tokens truncated… border-[#E5E0D5] overflow-hidden">
               {/* Gold Header */}
               <div className="bg-gradient-to-r from-[#C4A94D] to-[#B8983E] px-4 py-3 text-white">
                 <div className="flex items-center justify-between">

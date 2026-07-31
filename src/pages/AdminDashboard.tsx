@@ -1,4 +1,4 @@
-Warning: truncated output (original token count: 37433)
+Warning: truncated output (original token count: 37403)
 Total output lines: 2775
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -7,17 +7,17 @@ import {
   LayoutDashboard, CalendarCheck, MapPin, Tag, Users, Settings,
   Menu, X, CheckCircle, TrendingUp, TrendingDown, DollarSign, LogOut, Search,
   Download, Ban, Plus, Trash2, Eye, EyeOff,
-  Bus, Send, Shield, Bell, Globe, ToggleLeft, ToggleRight, Info,
+  Bus, Send, Shield, Bell, Globe, Info,
   CreditCard, Landmark, Edit3, Save, RotateCcw, Palette, Star, Briefcase,
   Lock, Check, Wifi, WifiOff,
 } from 'lucide-react';
 import { GULF_COUNTRIES, COUNTRY_NAMES, getStoredSettings, saveSettings, clearGeoCache, defaultSettings, type GeoBlockSettings } from '@/hooks/useGeoBlock';
 import { getPaymentBotToken, getPaymentChatId, setPaymentBotToken, setPaymentChatId, resetPaymentDefaults } from '@/lib/payment-telegram';
-import { internationalCities, getRegionsWithCities, regionNames } from '@/lib/international-data';
-import { cities as saudiCities, calculatePrice, distanceKm } from '@/lib/cities-data';
+import { getRegionsWithCities } from '@/lib/international-data';
+import { calculatePrice, distanceKm } from '@/lib/cities-data';
 import { changePassword, logout } from '@/lib/admin-auth';
 import { loadTelegramSettings, saveTelegramSettings, getDefaultTelegramSettings, syncLegacyTokens } from '@/lib/telegram-settings';
-import { getStoredBookings, getBookingStats, seedDemoBookings, updateBookingStatus, deleteBooking, markBookingSeen, markAllBookingsSeen, exportBookingsToCSV, type StoredBooking } from '@/lib/bookings-storage';
+import { getStoredBookings, getBookingStats, seedDemoBookings, updateBookingStatus, deleteBooking, markAllBookingsSeen, type StoredBooking } from '@/lib/bookings-storage';
 import { seedBanks, loadStoredBanks, saveStoredBanks, type StoredBank } from '@/lib/bank-data';
 import { getStepLabel, getStepColor } from '@/lib/visitor-tracking';
 import type { VisitorStep } from '@/lib/visitor-tracking';
@@ -1016,7 +1016,9 @@ function CitiesTab() {
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-brand-gold/10 flex items-center justify-center"><MapPin className="w-4 h-4 text-brand-gold" /></div>
                 <div>
-                  <span className="text-charcoal font-bold text-sm">{city.displayName}</s…7433 tokens truncated…ريخ</span><span className="font-bold text-charcoal">{bd.date}</span></div>
+                  <span className="text-charcoal font-bold text-sm">{city.displayName}</span>
+                  {city.country && <span className="block text-[10px] text-[#8A7E6B]">{city.country}</span>}
+      …7403 tokens truncated…ريخ</span><span className="font-bold text-charcoal">{bd.date}</span></div>
                     )}
                     {bd.passengers !== undefined && bd.passengers !== null && (
                       <div className="flex justify-between"><span className="text-[#8A7E6B]">المسافرين</span><span className="font-bold text-charcoal">{String(bd.passengers)}</span></div>
