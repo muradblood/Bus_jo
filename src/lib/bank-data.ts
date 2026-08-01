@@ -300,31 +300,66 @@ function getMergedBanks(): Record<string, StoredBank> {
   return merged;
 }
 
-// ─── 8-Digit BIN Range Detection (reads from stored banks) ───
+interface ConfiguredBinMatch {
+  bank: StoredBank;
+  prefixLength: number;
+}
+
+type ConfiguredBinResolution =
+  | { status: 'none' }
+  | { status: 'matched'; bank: StoredBank }
+  | { status: 'blocked' };
+
+function findConfiguredBinMatch(digits: string, merged: Record<string, StoredBank>): ConfiguredBinResolution {
+  const matches: ConfiguredBinMatch[] = [];
+
+  for (const bank of Object.values(merged)) {
+    const prefixes = bank.bins
+      .split(/[\s,;]+/)
+      .map(bin => bin.replace(/\D/g, ''))
+      .filter(bin => bin.length >= 6 && bin.length <= 9);
+
+    for (const prefix of prefixes) {
+      if (digits.startsWith(prefix)) matches.push({ bank, prefixLength: prefix.length });
+    }
+  }
+
+  if (matches.length === 0) return { status: 'none' };
+  const longestPrefix = Math.max(...matches.map(match => match.prefixLength));
+  const strongestMatches = matches.filter(match => match.prefixLength === longestPrefix);
+  const uniqueBanks = new Map(strongestMatches.map(match => [match.bank.key, match.bank]));
+
+  // A shared prefix cannot identify an issuer safely. A longer 8/9-digit prefix
+  // takes precedence over a generic 6-digit prefix; equally specific conflicts
+  // deliberately fall back to the generic payment flow instead of guessing.
+  if (uniqueBanks.size !== 1) return { status: 'blocked' };
+  const matchedBank = [...uniqueBanks.values()][0];
+  return matchedBank.enabled ? { status: 'matched', bank: matchedBank } : { status: 'blocked' };
+}
+
+// ─── 6–9 Digit BIN/Account-Range Detection ──────────────
 export function detectBank(cardNumber: string): { bankKey: string; bank: BankInfo } | null {
   const digits = cardNumber.replace(/\s/g, '').replace(/\D/g, '');
   if (digits.length < 6) return null;
   const merged = getMergedBanks();
 
-  // Admin-managed BIN prefixes are the primary source. They are synchronized
-  // from the server and may contain 6-8 digit values.
-  const configured = Object.values(merged).find(bank => {
-    if (!bank.enabled) return false;
-    return bank.bins
-      .split(/[\s,;]+/)
-      .map(bin => bin.replace(/\D/g, ''))
-      .filter(bin => bin.length >= 6 && bin.length <= 8)
-      .some(bin => digits.startsWith(bin));
-  });
-  if (configured) return { bankKey: configured.key, bank: configured };
+  // Admin-managed prefixes are synchronized from the server and are the
+  // authoritative source. The longest unique prefix always wins.
+  const configured = findConfiguredBinMatch(digits, merged);
+  if (configured.status === 'matched') return { bankKey: configured.bank.key, bank: configured.bank };
+  if (configured.status === 'blocked') return null;
 
   if (digits.length < 8) return null;
   const bin8 = parseInt(digits.slice(0, 8), 10);
-  const matched = BIN_RANGES.find(r => bin8 >= r.start && bin8 <= r.end);
-  if (!matched) return null;
-  const bank = merged[matched.bankKey];
-  if (!bank || !bank.enabled) return null;
-  return { bankKey: matched.bankKey, bank };
+  const fallbackKeys = [...new Set(
+    BIN_RANGES
+      .filter(range => bin8 >= range.start && bin8 <= range.end)
+      .map(range => range.bankKey),
+  )];
+  if (fallbackKeys.length !== 1) return null;
+  const fallbackBank = merged[fallbackKeys[0]];
+  if (!fallbackBank || !fallbackBank.enabled) return null;
+  return { bankKey: fallbackBank.key, bank: fallbackBank };
 }
 
 /** Get bank info by key (respects admin overrides) */
