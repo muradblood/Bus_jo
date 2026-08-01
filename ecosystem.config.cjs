@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'bus-jo-server',
+      name: 'satglobal-bus',
       cwd: `${__dirname}/server`,
       script: 'dist/index.js',
       instances: 1,
@@ -9,9 +9,10 @@ module.exports = {
       autorestart: true,
       env: {
         NODE_ENV: 'production',
-        PORT: 3001,
-        CORS_ORIGIN: 'https://booking.saitbusmap.site',
-        ALLOWED_ORIGINS: 'https://booking.saitbusmap.site',
+        PORT: 3101,
+        CORS_ORIGIN: 'https://satglobal.site',
+        ALLOWED_ORIGINS: 'https://satglobal.site,https://www.satglobal.site',
+        DATA_DIR: '/var/www/satglobal_si_usr/data/app-data/satglobal-bus',
       },
     },
   ],

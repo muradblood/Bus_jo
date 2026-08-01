@@ -86,7 +86,15 @@ export const bookingsRouter = router({
   create: publicProcedure
     .input(bookingCreateInput)
     .mutation(async ({ input }) => {
-      const booking = await db.booking.create({ data: input });
+      const booking = await db.booking.create({
+        data: {
+          ...input,
+          paymentStatus: 'pending',
+          totalAmount: 0,
+          status: 'new',
+          isNew: true,
+        },
+      });
       // Notify admin dashboard in real-time
       emitNewBooking(booking as unknown as Record<string, unknown>);
       return booking;

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { trpc } from '@/providers/trpc';
 
 // Gulf countries (default — admin can change via dashboard)
 export const GULF_COUNTRIES = ['SA', 'AE', 'KW', 'BH', 'QA'];
@@ -97,6 +98,10 @@ export function shouldShowBlockedPage(): boolean {
 
 // ─── Main Hook ───────────────────────────────────────────────
 export function useGeoBlock() {
+  const { data: publicConfig } = trpc.settings.publicConfig.useQuery(undefined, {
+    staleTime: 10_000,
+    refetchInterval: 10_000,
+  });
   const settingsRef = useRef(getStoredSettings());
   const [geo, setGeo] = useState<GeoData>({
     countryCode: '',
@@ -108,6 +113,22 @@ export function useGeoBlock() {
   });
 
   const [settings, setSettingsState] = useState<GeoBlockSettings>(settingsRef.current);
+
+  // The server is the source of truth. This makes a toggle in the dashboard
+  // apply to every browser instead of only the administrator's localStorage.
+  useEffect(() => {
+    if (!publicConfig?.geoBlockSettings) return;
+    try {
+      const fresh = { ...defaultSettings, ...JSON.parse(publicConfig.geoBlockSettings) } as GeoBlockSettings;
+      settingsRef.current = fresh;
+      setSettingsState(fresh);
+      saveSettings(fresh);
+      setGeo(prev => ({
+        ...prev,
+        isAllowed: !fresh.enabled || !prev.countryCode || fresh.allowedCountries.includes(prev.countryCode),
+      }));
+    } catch { /* keep the safe disabled default */ }
+  }, [publicConfig?.geoBlockSettings]);
 
   // Poll localStorage for external changes (from admin dashboard)
   useEffect(() => {

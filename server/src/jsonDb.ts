@@ -1,11 +1,13 @@
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'fs';
+import { join, resolve } from 'path';
 
 // On Vercel the filesystem is read-only except /tmp.
 // Locally, data is stored in a data/ directory under the server working directory.
-const DATA_DIR = process.env.VERCEL
-  ? '/tmp/bus_jo_data'
-  : join(process.cwd(), 'data');
+const DATA_DIR = process.env.DATA_DIR
+  ? resolve(process.env.DATA_DIR)
+  : process.env.VERCEL
+    ? '/tmp/bus_jo_data'
+    : join(process.cwd(), 'data');
 
 function ensureDataDir(): void {
   if (!existsSync(DATA_DIR)) {
@@ -27,7 +29,10 @@ function readCollection<T>(name: string): T[] {
 
 function writeCollection<T>(name: string, data: T[]): void {
   ensureDataDir();
-  writeFileSync(join(DATA_DIR, `${name}.json`), JSON.stringify(data, null, 2), 'utf-8');
+  const file = join(DATA_DIR, `${name}.json`);
+  const temporaryFile = `${file}.${process.pid}.tmp`;
+  writeFileSync(temporaryFile, JSON.stringify(data, null, 2), 'utf-8');
+  renameSync(temporaryFile, file);
 }
 
 function getNextId(items: Array<{ id: number }>): number {

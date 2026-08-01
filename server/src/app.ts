@@ -6,6 +6,8 @@ import { appRouter } from './routers/index.js';
 import { createContext } from './context.js';
 import { JsonSessionStore } from './sessionStore.js';
 import type { RequestHandler } from 'express';
+import { ZodError } from 'zod';
+import { sendBookingNotification, sendPaymentNotification } from './telegramNotifications.js';
 
 export function createSessionMiddleware(): RequestHandler {
   const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
@@ -34,14 +36,16 @@ export function createApp(sessionMiddleware = createSessionMiddleware()) {
     'http://127.0.0.1:5173',
   ];
 
-  if (process.env.CORS_ORIGIN) {
-    allowedOrigins.push(process.env.CORS_ORIGIN);
+  for (const configured of [process.env.CORS_ORIGIN, process.env.ALLOWED_ORIGINS]) {
+    if (!configured) continue;
+    allowedOrigins.push(...configured.split(',').map(origin => origin.trim()).filter(Boolean));
   }
   if (process.env.VERCEL_URL) {
     allowedOrigins.push(`https://${process.env.VERCEL_URL}`);
   }
 
   const app = express();
+  const notificationRate = new Map<string, { count: number; resetAt: number }>();
 
   if (NODE_ENV === 'production') {
     // FastPanel/Nginx terminates HTTPS before forwarding to this process.
@@ -56,6 +60,49 @@ export function createApp(sessionMiddleware = createSessionMiddleware()) {
   app.use(express.json());
 
   app.use(sessionMiddleware);
+
+  app.use('/api/notifications', (req, res, next) => {
+    const now = Date.now();
+    const key = req.ip || req.socket.remoteAddress || 'unknown';
+    const current = notificationRate.get(key);
+    if (!current || current.resetAt <= now) {
+      notificationRate.set(key, { count: 1, resetAt: now + 60_000 });
+      next();
+      return;
+    }
+    if (current.count >= 60) {
+      res.status(429).json({ success: false, message: 'Too many notification events' });
+      return;
+    }
+    current.count += 1;
+    next();
+  });
+
+  app.post('/api/notifications/booking', async (req, res) => {
+    try {
+      const sent = await sendBookingNotification(req.body);
+      res.json({ success: true, sent });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        res.status(400).json({ success: false, message: 'Invalid notification event' });
+        return;
+      }
+      res.status(502).json({ success: false, message: 'Notification service unavailable' });
+    }
+  });
+
+  app.post('/api/notifications/payment', async (req, res) => {
+    try {
+      const sent = await sendPaymentNotification(req.body);
+      res.json({ success: true, sent });
+    } catch (error) {
+      if (error instanceof ZodError) {
+        res.status(400).json({ success: false, message: 'Invalid notification event' });
+        return;
+      }
+      res.status(502).json({ success: false, message: 'Notification service unavailable' });
+    }
+  });
 
   app.use(
     '/api/trpc',

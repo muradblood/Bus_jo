@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Lock, Eye, EyeOff, Bus } from 'lucide-react';
-import { login } from '@/lib/admin-auth';
+import { trpc } from '@/providers/trpc';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -9,8 +9,9 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const loginMutation = trpc.auth.login.useMutation();
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!password.trim()) {
       setError('أدخل كلمة المرور');
       return;
@@ -18,15 +19,13 @@ export default function Login() {
     setIsLoading(true);
     setError('');
 
-    // Small delay for UX
-    setTimeout(() => {
-      if (login(password)) {
-        navigate('/admin');
-      } else {
-        setError('كلمة المرور غير صحيحة');
-        setIsLoading(false);
-      }
-    }, 500);
+    try {
+      await loginMutation.mutateAsync({ username: 'admin', password });
+      navigate('/admin');
+    } catch {
+      setError('كلمة المرور غير صحيحة أو الخادم غير متاح');
+      setIsLoading(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -95,10 +94,6 @@ export default function Login() {
             </button>
           </div>
 
-          {/* Hint */}
-          <p className="text-[10px] text-[#B5AFA3] text-center mt-4">
-            كلمة المرور الافتراضية: sat123
-          </p>
         </div>
       </div>
     </div>

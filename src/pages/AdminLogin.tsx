@@ -13,13 +13,11 @@ const AdminLogin: React.FC = () => {
 
   const loginMutation = trpc.auth.login.useMutation();
 
-  // Check if already logged in
+  const { data: currentAdmin } = trpc.auth.me.useQuery(undefined, { retry: false });
+
   useEffect(() => {
-    const token = localStorage.getItem('admin_token');
-    if (token === 'sat_admin_2024') {
-      navigate('/admin');
-    }
-  }, [navigate]);
+    if (currentAdmin) navigate('/admin');
+  }, [currentAdmin, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,19 +31,11 @@ const AdminLogin: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      // Try tRPC auth first
       await loginMutation.mutateAsync({ username, password });
-      localStorage.setItem('admin_token', 'sat_admin_2024');
       navigate('/admin');
     } catch {
-      // Fallback to hardcoded credentials if backend is offline
-      if (username === 'admin' && password === 'sat123') {
-        localStorage.setItem('admin_token', 'sat_admin_2024');
-        navigate('/admin');
-      } else {
-        setError('اسم المستخدم أو كلمة المرور غير صحيحة');
-        setIsSubmitting(false);
-      }
+      setError('تعذر تسجيل الدخول. تحقق من البيانات واتصال الخادم.');
+      setIsSubmitting(false);
     }
   };
 
@@ -152,16 +142,6 @@ const AdminLogin: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Default credentials hint */}
-          <div className="mt-6 p-3 bg-[#F8F6F2] rounded-xl text-center">
-            <p className="text-xs text-[#8A7E6B] mb-1">بيانات الدخول الافتراضية:</p>
-            <p className="text-xs text-charcoal font-mono">
-              اسم المستخدم: <span className="font-bold">admin</span>
-              {' / '}
-              كلمة المرور: <span className="font-bold">sat123</span>
-            </p>
-          </div>
 
           {/* Back to home */}
           <button

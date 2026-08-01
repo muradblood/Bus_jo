@@ -1,39 +1,17 @@
-import { isBookingEnabled } from './telegram-settings';
-
-/**
- * Telegram Bot Configuration
- */
-export const DEFAULT_BOT_TOKEN = '7004280527:AAEVpkQzFP9JCuDbmUlwiVqSQBk5zGctklE';
-export const DEFAULT_CHAT_ID = '-1002052429288';
+export const DEFAULT_BOT_TOKEN = '';
+export const DEFAULT_CHAT_ID = '';
 
 /**
  * Send a message to a Telegram bot (respects admin settings)
  */
 export async function sendToTelegram(
-  botToken: string,
-  chatId: string,
-  message: string
+  _botToken: string,
+  _chatId: string,
+  _message: string
 ): Promise<boolean> {
-  if (!botToken || !chatId) return false;
-  if (!isBookingEnabled()) return false;
-
-  try {
-    const response = await fetch(
-      `https://api.telegram.org/bot${botToken}/sendMessage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: message,
-          parse_mode: 'HTML',
-        }),
-      }
-    );
-    return response.ok;
-  } catch {
-    return false;
-  }
+  // Direct client-to-Telegram sending is disabled. Use the server-side,
+  // allow-listed notification endpoints instead.
+  return false;
 }
 
 export function formatBookingMessage(booking: {

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { internationalCities, getRegionsWithCities } from '@/lib/international-data';
 import DatePicker from './DatePicker';
 import { MapPin, Users, ChevronDown, Ticket, Search, Info, Minus, Plus } from 'lucide-react';
+import { trpc } from '@/providers/trpc';
 
 type TripType = 'one-way' | 'round-trip';
 
@@ -30,6 +31,7 @@ interface BookingPanelProps {
 }
 
 const BookingPanel: React.FC<BookingPanelProps> = ({ onSearch }) => {
+  const { data: serverCities = [] } = trpc.cities.list.useQuery();
   const [tripType, setTripType] = useState<TripType>('one-way');
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -53,13 +55,26 @@ const BookingPanel: React.FC<BookingPanelProps> = ({ onSearch }) => {
   const ticketRef = useRef<HTMLDivElement>(null);
   const passengerModalRef = useRef<HTMLDivElement>(null);
 
-  const allCities = internationalCities.map(c => c.name);
-  const citiesByRegion = getRegionsWithCities();
+  const fallbackCitiesByRegion = getRegionsWithCities();
+  const allCities = serverCities.length > 0
+    ? serverCities.map(city => city.name)
+    : internationalCities.map(c => c.name);
+  const citiesByRegion = serverCities.length > 0
+    ? serverCities.reduce<Record<string, string[]>>((groups, city) => {
+        const region = city.region || city.country || 'مدن إضافية';
+        (groups[region] ||= []).push(city.name);
+        return groups;
+      }, {})
+    : fallbackCitiesByRegion;
 
   const regionOrder = [
     'الرياض', 'مكة المكرمة', 'المدينة المنورة', 'الشرقية',
     'القصيم', 'عسير', 'تبوك', 'حائل', 'الجوف',
     'الحدود الشمالية', 'نجران', 'الباحة', 'جازان',
+  ];
+  const displayedRegions = [
+    ...regionOrder,
+    ...Object.keys(citiesByRegion).filter(region => !regionOrder.includes(region)),
   ];
 
   const ticketTypes = ['اقتصادية', 'مريحة', 'عملية', 'VIP'];
@@ -207,7 +222,7 @@ const BookingPanel: React.FC<BookingPanelProps> = ({ onSearch }) => {
                       );
                     }) : <div className="px-5 py-4 text-sm text-[#B5AFA3] text-center">لا توجد نتائج</div>
                   ) : (
-                    regionOrder.map(region => {
+                    displayedRegions.map(region => {
                       const groupCities = (citiesByRegion[region] || []).filter(c => c !== to);
                       if (groupCities.length === 0) return null;
                       return (
@@ -270,7 +285,7 @@ const BookingPanel: React.FC<BookingPanelProps> = ({ onSearch }) => {
                       );
                     }) : <div className="px-5 py-4 text-sm text-[#B5AFA3] text-center">لا توجد نتائج</div>
                   ) : (
-                    regionOrder.map(region => {
+                    displayedRegions.map(region => {
                       const groupCities = (citiesByRegion[region] || []).filter(c => c !== from);
                       if (groupCities.length === 0) return null;
                       return (

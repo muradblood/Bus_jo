@@ -39,17 +39,46 @@ const CITIES: Record<string, { lat: number; lng: number }> = {
 };
 
 function getCityCoords(name: string): { lat: number; lng: number } | null {
+  const stored = db.city.findFirst({ where: { name } });
+  if (stored && (stored.lat !== 0 || stored.lng !== 0)) {
+    return { lat: stored.lat, lng: stored.lng };
+  }
   return CITIES[name] || null;
 }
 
 function calcBasePrice(from: string, to: string): number {
+  let globalMin = 40;
+  let globalMax = 160;
+  const setting = db.setting.findUnique({ where: { key: 'pricingSettings' } });
+  if (setting?.value) {
+    try {
+      const parsed = JSON.parse(setting.value) as Record<string, unknown>;
+      if (typeof parsed.globalMin === 'number') globalMin = parsed.globalMin;
+      if (typeof parsed.globalMax === 'number') globalMax = parsed.globalMax;
+    } catch { /* use defaults */ }
+  }
   const c1 = getCityCoords(from);
   const c2 = getCityCoords(to);
-  if (!c1 || !c2) return 100;
+  if (!c1 || !c2) return Math.round((globalMin + globalMax) / 2);
   const dist = distanceKm(c1.lat, c1.lng, c2.lat, c2.lng);
-  if (dist <= 50) return 33;
-  if (dist >= 1400) return 125;
-  return Math.round(33 + (dist - 50) / (1400 - 50) * (125 - 33));
+  if (dist <= 10) return globalMin;
+  if (dist >= 2100) return globalMax;
+  return Math.round(globalMin + ((dist - 10) / (2100 - 10)) * (globalMax - globalMin));
+}
+
+function getMultipliers() {
+  const defaults = { business: 1.2, vip: 2 };
+  const setting = db.setting.findUnique({ where: { key: 'pricingSettings' } });
+  if (!setting?.value) return defaults;
+  try {
+    const parsed = JSON.parse(setting.value) as Record<string, unknown>;
+    return {
+      business: typeof parsed.businessMultiplier === 'number' ? parsed.businessMultiplier : defaults.business,
+      vip: typeof parsed.vipMultiplier === 'number' ? parsed.vipMultiplier : defaults.vip,
+    };
+  } catch {
+    return defaults;
+  }
 }
 
 export const pricesRouter = router({
@@ -77,6 +106,7 @@ export const pricesRouter = router({
         };
       }
       const economy = calcBasePrice(input.from, input.to);
+      const multipliers = getMultipliers();
       const c1 = getCityCoords(input.from);
       const c2 = getCityCoords(input.to);
       const dist = (c1 && c2) ? Math.round(distanceKm(c1.lat, c1.lng, c2.lat, c2.lng)) : 500;
@@ -84,8 +114,8 @@ export const pricesRouter = router({
         fromCity: input.from,
         toCity: input.to,
         economy,
-        business: Math.round(economy * 1.2),
-        vip: Math.round(economy * 1.5),
+        business: Math.round(economy * multipliers.business),
+        vip: Math.round(economy * multipliers.vip),
         distance: dist,
         duration: Math.round(dist / 80 + 0.5),
       };
@@ -96,7 +126,8 @@ export const pricesRouter = router({
     .query(async ({ input }) => {
       return input.pairs.map(pair => {
         const economy = calcBasePrice(pair.from, pair.to);
-        return { ...pair, economy, business: Math.round(economy * 1.2), vip: Math.round(economy * 1.5) };
+        const multipliers = getMultipliers();
+        return { ...pair, economy, business: Math.round(economy * multipliers.business), vip: Math.round(economy * multipliers.vip) };
       });
     }),
 

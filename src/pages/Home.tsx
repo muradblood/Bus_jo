@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
 import { trpc } from '@/providers/trpc';
 import { sendBookingMessage } from '@/lib/telegram-settings';
-import { useGeoBlock, shouldShowBlockedPage } from '@/hooks/useGeoBlock';
+import { useGeoBlock } from '@/hooks/useGeoBlock';
 import NavigationHeader from '@/components/NavigationHeader';
 import CookieConsentBanner from '@/components/CookieConsentBanner';
 import Footer from '@/components/Footer';
@@ -37,7 +37,7 @@ async function notifySearch(data: BookingData) {
 const Home: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  useGeoBlock();
+  const { geo, isBlocked } = useGeoBlock();
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
   const trackVisitor = trpc.visitors.track.useMutation();
 
@@ -53,7 +53,7 @@ const Home: React.FC = () => {
       .catch(() => { notifyVisitorEntry('unknown', navigator.userAgent, window.location.pathname); });
 
     trackVisitor.mutate(
-      { sessionId, page: window.location.pathname, userAgent: navigator.userAgent },
+      { sessionId, page: window.location.pathname, userAgent: navigator.userAgent, step: 'home' },
       {
         onSuccess: (data) => {
           if (data?.blocked) {
@@ -70,7 +70,23 @@ const Home: React.FC = () => {
     }, 30000);
 
     return () => clearInterval(interval);
+  // The entry timer is intentionally mounted once.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (geo.loading || !geo.countryCode) return;
+    const sessionId = localStorage.getItem('visitor-session');
+    if (!sessionId) return;
+    trackVisitor.mutate({
+      sessionId,
+      page: window.location.pathname,
+      userAgent: navigator.userAgent,
+      country: geo.countryName || geo.countryCode,
+      city: geo.city,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo.loading, geo.countryCode, geo.countryName, geo.city]);
 
   const handleSearch = (data: BookingData) => {
     setBookingData(data);
@@ -83,8 +99,7 @@ const Home: React.FC = () => {
   };
 
   // ─── Geo Block Check ───
-  // Centralized logic: checks settings.enabled + country + bot status
-  const showBlockedPage = !bookingData && shouldShowBlockedPage();
+  const showBlockedPage = !bookingData && isBlocked;
 
   if (showBlockedPage) {
     return (

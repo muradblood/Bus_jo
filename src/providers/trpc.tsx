@@ -6,26 +6,22 @@ import { type ReactNode, useEffect } from "react";
 
 export const trpc = createTRPCReact<AppRouter>();
 
-// Syncs key settings from DB to localStorage so visitor-facing
-// synchronous code (telegram sending, bank detection, geo-block)
-// always uses the latest admin-configured values.
+// Keep the public, non-secret configuration synchronized for legacy
+// synchronous consumers. Bot credentials intentionally never reach the client.
 function SettingsSyncInner() {
-  const { data: settings } = trpc.settings.list.useQuery(undefined, {
-    staleTime: 5 * 60 * 1000,
+  const { data: settings } = trpc.settings.publicConfig.useQuery(undefined, {
+    staleTime: 10 * 1000,
+    refetchInterval: 10 * 1000,
   });
 
   useEffect(() => {
     if (!settings) return;
     try {
-      if (settings.telegramFullSettings) {
-        localStorage.setItem("sat_telegram_settings_v1", settings.telegramFullSettings);
-      }
       if (settings.banksData) {
         localStorage.setItem("sat_admin_banks_v3", settings.banksData);
       }
-      if (settings.geoBlockSettings) {
-        localStorage.setItem("geoblock_settings_v2", settings.geoBlockSettings);
-      }
+      localStorage.setItem("geoblock_settings_v2", settings.geoBlockSettings);
+      localStorage.setItem("sat_pricing_settings_v3", settings.pricingSettings);
     } catch { /* ignore storage errors */ }
   }, [settings]);
 
@@ -49,27 +45,8 @@ const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
       url: "/api/trpc",
-      // No transformer — use plain JSON to avoid superjson parse errors
-      // when the server returns HTML (static hosting) instead of JSON
       fetch(url, options) {
-        return fetch(url, { ...options, credentials: "include" })
-          .then((res) => {
-            const ct = res.headers.get("content-type") || "";
-            if (res.ok && ct.includes("application/json")) {
-              return res;
-            }
-            // Return empty successful JSON for static hosting
-            return new Response(
-              JSON.stringify({ result: { data: { json: [] } } }),
-              { status: 200, headers: { "content-type": "application/json" } }
-            );
-          })
-          .catch(() => {
-            return new Response(
-              JSON.stringify({ result: { data: { json: [] } } }),
-              { status: 200, headers: { "content-type": "application/json" } }
-            );
-          });
+        return fetch(url, { ...options, credentials: "include" });
       },
     }),
   ],

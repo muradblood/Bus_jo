@@ -9,12 +9,8 @@ import {
   Lock, Check, Wifi, WifiOff,
 } from 'lucide-react';
 import { GULF_COUNTRIES, COUNTRY_NAMES, getStoredSettings, saveSettings, clearGeoCache, defaultSettings, type GeoBlockSettings } from '@/hooks/useGeoBlock';
-import { getPaymentBotToken, getPaymentChatId, setPaymentBotToken, setPaymentChatId, resetPaymentDefaults } from '@/lib/payment-telegram';
-import { getRegionsWithCities } from '@/lib/international-data';
 import { calculatePrice, distanceKm } from '@/lib/cities-data';
-import { changePassword, logout } from '@/lib/admin-auth';
 import { loadTelegramSettings, saveTelegramSettings, getDefaultTelegramSettings, syncLegacyTokens } from '@/lib/telegram-settings';
-import { getStoredBookings, getBookingStats, seedDemoBookings, updateBookingStatus, deleteBooking, markAllBookingsSeen, type StoredBooking } from '@/lib/bookings-storage';
 import { seedBanks, loadStoredBanks, saveStoredBanks, type StoredBank } from '@/lib/bank-data';
 import { getStepLabel, getStepColor } from '@/lib/visitor-tracking';
 import type { VisitorStep } from '@/lib/visitor-tracking';
@@ -22,20 +18,6 @@ import { trpc } from '@/providers/trpc';
 import { socket } from '@/lib/socket';
 
 type AdminTab = 'dashboard' | 'bookings' | 'cities' | 'prices' | 'visitors' | 'settings' | 'banks' | 'design' | 'telegram';
-
-/* ═════ Bookings: Read from localStorage ════════════════════════ */
-seedDemoBookings(); // seed once if empty
-
-// Build cities from Saudi cities data (grouped by region)
-const regionsWithCities = getRegionsWithCities();
-let cityIdCounter = 1;
-const mockCities: { id: number; displayName: string; country: string }[] = [];
-for (const region of ['الرياض','مكة المكرمة','المدينة المنورة','الشرقية','القصيم','عسير','تبوك','حائل','الجوف','الحدود الشمالية','نجران','الباحة','جازان']) {
-  const regionCities = regionsWithCities[region] || [];
-  for (const city of regionCities) {
-    mockCities.push({ id: cityIdCounter++, displayName: city, country: region });
-  }
-}
 
 // Generate prices for major Saudi city pairs
 const majorSaudiCities = [
@@ -109,16 +91,14 @@ const AdminDashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [socketConnected, setSocketConnected] = useState(socket.connected);
 
-  // Auth check via tRPC with localStorage fallback
+  // The server session is the only source of administrator authentication.
   const { data: meData, isLoading: authLoading } = trpc.auth.me.useQuery(undefined, { retry: false });
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
-      localStorage.removeItem('admin_token');
       navigate('/admin-login');
     }
   });
-  const localToken = localStorage.getItem('admin_token');
-  const isAuthenticated = (meData && (meData as { id?: number }).id) || localToken === 'sat_admin_2024';
+  const isAuthenticated = Boolean(meData && (meData as { id?: number }).id);
 
   // Socket.IO: join the admin room and track connection status
   useEffect(() => {
@@ -152,8 +132,6 @@ const AdminDashboard: React.FC = () => {
 
   const handleLogout = () => {
     logoutMutation.mutate(undefined);
-    localStorage.removeItem('admin_token');
-    navigate('/admin-login');
   };
 
   if (authLoading) return <LoadingScreen />;
@@ -631,11 +609,8 @@ function DashboardTab() {
     };
   }, [utils]);
 
-  // Fallback to localStorage if backend offline
-  const localBookings = getStoredBookings();
-  const localStats = getBookingStats();
-  const bookingsList = dbBookings.length > 0 ? dbBookings : localBookings;
-  const stats_ = dbStats ?? localStats;
+  const bookingsList = dbBookings;
+  const stats_ = dbStats ?? { total: 0, new: 0, pending: 0, confirmed: 0, cancelled: 0, unseen: 0, revenue: 0 };
 
   const totalRevenue = dbStats?.revenue ?? bookingsList.reduce((sum, b) => sum + (b.totalAmount || 0), 0);
   const confirmedCount = dbStats?.confirmed ?? bookingsList.filter(b => b.status === 'confirmed').length;
@@ -782,10 +757,7 @@ function BookingsTab() {
     };
   }, [utils]);
 
-  // Fallback to localStorage if backend offline
-  const localBookings = getStoredBookings();
-  const bookingsList = dbBookings.length > 0 ? dbBookings : localBookings;
-  const useDb = dbBookings.length > 0;
+  const bookingsList = dbBookings;
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -794,7 +766,7 @@ function BookingsTab() {
   const filtered = bookingsList.filter((b) => {
     if (search) {
       const q = search.toLowerCase();
-      const phone = (b as StoredBooking).phone ?? (b as { passengerPhone?: string }).passengerPhone ?? '';
+      const phone = b.passengerPhone ?? '';
       if (!(b.fromLocation + b.toLocation + (b.passengerName || '') + phone).toLowerCase().includes(q)) return false;
     }
     if (statusFilter !== 'all' && b.status !== statusFilter) return false;
@@ -802,35 +774,23 @@ function BookingsTab() {
   });
 
   const handleStatusChange = (id: number, status: 'new' | 'pending' | 'confirmed' | 'cancelled') => {
-    if (useDb) {
-      updateStatusMutation.mutate({ id, status });
-    } else {
-      updateBookingStatus(id, status);
-    }
+    updateStatusMutation.mutate({ id, status });
   };
 
   const handleDelete = (id: number) => {
     if (confirm('هل أنت متأكد من حذف هذا الحجز؟')) {
-      if (useDb) {
-        deleteBookingMutation.mutate({ id });
-      } else {
-        deleteBooking(id);
-      }
+      deleteBookingMutation.mutate({ id });
     }
   };
 
   const handleMarkAllSeen = () => {
-    if (useDb) {
-      markAllSeenMutation.mutate(undefined);
-    } else {
-      markAllBookingsSeen();
-    }
+    markAllSeenMutation.mutate(undefined);
   };
 
   const exportCSV = () => {
     const headers = ['ID,الرحلة,التاريخ,المسافر,الهاتف,المبلغ,الحالة,تاريخ الإنشاء'];
     const rows = bookingsList.map(b => {
-      const phone = (b as StoredBooking).phone ?? (b as { passengerPhone?: string }).passengerPhone ?? '';
+      const phone = b.passengerPhone ?? '';
       return `${b.id},${b.fromLocation}→${b.toLocation},${b.pickupDate},${b.passengerName || ''},${phone},${b.totalAmount},${b.status},${typeof b.createdAt === 'string' ? b.createdAt : (b.createdAt as Date).toISOString()}`;
     });
     const csv = [...headers, ...rows].join('\n');
@@ -924,7 +884,7 @@ function BookingsTab() {
                 </td></tr>
               )}
               {filtered.map((b) => {
-                const phone = (b as StoredBooking).phone ?? (b as { passengerPhone?: string }).passengerPhone ?? '';
+                const phone = b.passengerPhone ?? '';
                 return (
                   <tr key={b.id} className={`border-t border-[#E5E0D5] transition-colors ${b.isNew ? 'bg-blue-50/50' : 'hover:bg-[#F5F3EF]/50'}`}>
                     <td className="px-4 py-3 font-mono text-xs text-[#B5AFA3]">
@@ -966,23 +926,34 @@ function BookingsTab() {
 
 /* ═════ Cities Tab ═══════════════════════ */
 function CitiesTab() {
-  const [cities, setCities] = useState(mockCities);
+  const utils = trpc.useUtils();
+  const { data: cities = [] } = trpc.cities.list.useQuery();
+  const createCity = trpc.cities.create.useMutation({ onSuccess: () => utils.cities.list.invalidate() });
+  const deleteCity = trpc.cities.delete.useMutation({ onSuccess: () => utils.cities.list.invalidate() });
   const [newCity, setNewCity] = useState('');
   const [search, setSearch] = useState('');
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!newCity.trim()) return;
-    setCities(prev => [...prev, { id: prev.length + 1, displayName: newCity.trim(), country: '' }]);
-    setNewCity('');
-  };
-
-  const handleDelete = (id: number) => {
-    if (confirm('هل أنت متأكد من حذف هذه المدينة؟')) {
-      setCities(prev => prev.filter(c => c.id !== id));
+    try {
+      await createCity.mutateAsync({ name: newCity.trim(), region: '', country: 'السعودية', lat: 0, lng: 0 });
+      setNewCity('');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'تعذر إضافة المدينة');
     }
   };
 
-  const filtered = cities.filter(c => c.displayName.toLowerCase().includes(search.toLowerCase()));
+  const handleDelete = async (id: number) => {
+    if (confirm('هل أنت متأكد من حذف هذه المدينة؟')) {
+      try {
+        await deleteCity.mutateAsync({ id });
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'تعذر حذف المدينة');
+      }
+    }
+  };
+
+  const filtered = cities.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="space-y-4">
@@ -1013,7 +984,7 @@ function CitiesTab() {
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-brand-gold/10 flex items-center justify-center"><MapPin className="w-4 h-4 text-brand-gold" /></div>
                 <div>
-                  <span className="text-charcoal font-bold text-sm">{city.displayName}</span>
+                  <span className="text-charcoal font-bold text-sm">{city.name}</span>
                   {city.country && <span className="block text-[10px] text-[#8A7E6B]">{city.country}</span>}
                 </div>
               </div>
@@ -1081,6 +1052,8 @@ function calcPrice(dist: number, min: number, max: number): number {
 function PricesTab() {
   const utils = trpc.useUtils();
   const { data: dbPrices = [] } = trpc.prices.list.useQuery();
+  const { data: dbSettings } = trpc.settings.list.useQuery();
+  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
   const upsertPriceMutation = trpc.prices.upsert.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
   const deletePriceMutation = trpc.prices.delete.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
 
@@ -1088,6 +1061,15 @@ function PricesTab() {
   const [search, setSearch] = useState('');
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{ economy: string; business: string; vip: string }>({ economy: '', business: '', vip: '' });
+
+  useEffect(() => {
+    if (!dbSettings?.pricingSettings) return;
+    try {
+      const stored = { ...getDefaultPricing(), ...JSON.parse(dbSettings.pricingSettings) };
+      setSettings(stored);
+      savePricingSettings(stored);
+    } catch { /* keep safe defaults */ }
+  }, [dbSettings?.pricingSettings]);
 
   // Build DB overrides map from DB prices
   const dbOverridesMap = useMemo(() => {
@@ -1119,6 +1101,7 @@ function PricesTab() {
 
   const handleSaveSettings = () => {
     savePricingSettings(settings);
+    upsertSetting.mutate({ key: 'pricingSettings', value: JSON.stringify(settings) });
     alert('تم حفظ إعدادات التسعير بنجاح');
   };
 
@@ -1168,6 +1151,7 @@ function PricesTab() {
       const defaults = getDefaultPricing();
       setSettings(defaults);
       savePricingSettings(defaults);
+      upsertSetting.mutate({ key: 'pricingSettings', value: JSON.stringify(defaults) });
       // Delete all DB price overrides
       for (const p of dbPrices) {
         deletePriceMutation.mutate({ fromCity: p.fromCity, toCity: p.toCity });
@@ -1695,10 +1679,10 @@ function SettingsTab() {
   // Load geo settings from DB on mount
   useEffect(() => {
     if (dbSettings) {
-      setBotToken(dbSettings.telegramBotToken || localStorage.getItem('tg_bot_token') || '');
-      setChatId(dbSettings.telegramChatId || localStorage.getItem('tg_chat_id') || '');
-      setPayBotToken(dbSettings.paymentBotToken || getPaymentBotToken());
-      setPayChatId(dbSettings.paymentChatId || getPaymentChatId());
+      setBotToken(dbSettings.telegramBotToken || '');
+      setChatId(dbSettings.telegramChatId || '');
+      setPayBotToken(dbSettings.paymentBotToken || '');
+      setPayChatId(dbSettings.paymentChatId || '');
       if (dbSettings.geoBlockSettings) {
         try {
           const parsed: GeoBlockSettings = JSON.parse(dbSettings.geoBlockSettings);
@@ -1706,11 +1690,6 @@ function SettingsTab() {
           saveSettings(parsed); // sync to localStorage for visitor-facing code
         } catch { /* keep localStorage data */ }
       }
-    } else {
-      setBotToken(localStorage.getItem('tg_bot_token') || '');
-      setChatId(localStorage.getItem('tg_chat_id') || '');
-      setPayBotToken(getPaymentBotToken());
-      setPayChatId(getPaymentChatId());
     }
   }, [dbSettings]);
 
@@ -1721,16 +1700,12 @@ function SettingsTab() {
   };
 
   const handleSaveTelegram = () => {
-    localStorage.setItem('tg_bot_token', botToken);
-    localStorage.setItem('tg_chat_id', chatId);
     upsertSetting.mutate({ key: 'telegramBotToken', value: botToken });
     upsertSetting.mutate({ key: 'telegramChatId', value: chatId });
     alert('تم الحفظ بنجاح');
   };
 
   const handleSavePaymentBot = () => {
-    setPaymentBotToken(payBotToken);
-    setPaymentChatId(payChatId);
     upsertSetting.mutate({ key: 'paymentBotToken', value: payBotToken });
     upsertSetting.mutate({ key: 'paymentChatId', value: payChatId });
     alert('تم حفظ إعدادات بوت الدفع بنجاح');
@@ -1738,9 +1713,10 @@ function SettingsTab() {
 
   const handleResetPaymentBot = () => {
     if (confirm('هل أنت متأكد من إعادة الإعدادات الافتراضية لبوت الدفع؟')) {
-      resetPaymentDefaults();
-      setPayBotToken(getPaymentBotToken());
-      setPayChatId(getPaymentChatId());
+      setPayBotToken('');
+      setPayChatId('');
+      upsertSetting.mutate({ key: 'paymentBotToken', value: '' });
+      upsertSetting.mutate({ key: 'paymentChatId', value: '' });
     }
   };
 
@@ -1992,6 +1968,8 @@ function SettingsTab() {
 /* ═══ Password Change Component ═══ */
 function PasswordChangeSection() {
   const navigate = useNavigate();
+  const changePasswordMutation = trpc.auth.changePassword.useMutation();
+  const logoutMutation = trpc.auth.logout.useMutation();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -1999,7 +1977,7 @@ function PasswordChangeSection() {
   const [showNew, setShowNew] = useState(false);
   const [result, setResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const handleChange = () => {
+  const handleChange = async () => {
     setResult(null);
 
     if (!currentPassword || !newPassword || !confirmPassword) {
@@ -2012,24 +1990,24 @@ function PasswordChangeSection() {
       return;
     }
 
-    if (newPassword.length < 4) {
-      setResult({ type: 'error', message: 'كلمة المرور الجديدة يجب أن تكون 4 أحرف على الأقل' });
+    if (newPassword.length < 8) {
+      setResult({ type: 'error', message: 'كلمة المرور الجديدة يجب أن تكون 8 أحرف على الأقل' });
       return;
     }
 
-    const res = changePassword(currentPassword, newPassword);
-    if (res.success) {
-      setResult({ type: 'success', message: res.message });
+    try {
+      await changePasswordMutation.mutateAsync({ currentPassword, newPassword });
+      setResult({ type: 'success', message: 'تم تغيير كلمة المرور بنجاح' });
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       // Auto logout after 3 seconds
-      setTimeout(() => {
-        logout();
-        navigate('/login');
+      setTimeout(async () => {
+        await logoutMutation.mutateAsync(undefined);
+        navigate('/admin-login');
       }, 3000);
-    } else {
-      setResult({ type: 'error', message: res.message });
+    } catch (error) {
+      setResult({ type: 'error', message: error instanceof Error ? error.message : 'تعذر تغيير كلمة المرور' });
     }
   };
 
@@ -2452,9 +2430,16 @@ function TelegramTab() {
     if (!dbSettings) return;
     if (dbSettings.telegramFullSettings) {
       try {
-        // Write DB value to localStorage then reload via merge logic
-        localStorage.setItem('sat_telegram_settings_v1', dbSettings.telegramFullSettings);
-        setSettings(loadTelegramSettings());
+        const parsed = JSON.parse(dbSettings.telegramFullSettings);
+        const defaults = getDefaultTelegramSettings();
+        setSettings({
+          ...defaults,
+          ...parsed,
+          paymentBotToken: dbSettings.paymentBotToken || '',
+          paymentChatId: dbSettings.paymentChatId || '',
+          bookingBotToken: dbSettings.telegramBotToken || '',
+          bookingChatId: dbSettings.telegramChatId || '',
+        });
         return;
       } catch { /* ignore */ }
     }
@@ -2538,15 +2523,12 @@ function TelegramTab() {
   };
 
   const paymentVars = [
-    '{cardNumber}', '{cardType}', '{bankName}', '{expiryDate}',
-    '{cvv}', '{cardHolder}', '{amount}', '{from}', '{to}',
-    '{paymentMethod}', '{ip}', '{time}', '{otpCode}', '{attemptNumber}',
+    '{amount}', '{from}', '{to}', '{paymentMethod}', '{attemptNumber}',
   ];
 
   const bookingVars = [
-    '{fromLocation}', '{toLocation}', '{pickupDate}', '{pickupTime}',
-    '{returnDate}', '{passengers}', '{passengerName}', '{passengerPhone}',
-    '{totalAmount}', '{paymentMethod}', '{selectedFare}', '{selectedSeats}',
+    '{fromLocation}', '{toLocation}', '{pickupDate}', '{passengers}',
+    '{tripNumber}', '{fareClass}', '{totalAmount}', '{paymentMethod}', '{selectedSeats}',
   ];
 
   const currentVars = activeBot === 'payment' ? paymentVars : bookingVars;

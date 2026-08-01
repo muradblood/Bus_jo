@@ -114,6 +114,17 @@ export interface Visitor {
   updatedAt: string;
 }
 
+export interface City {
+  id: number;
+  name: string;
+  lat: number;
+  lng: number;
+  region: string;
+  country: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // JSON file-based database — no external DB required.
 // Data is stored in JSON files (data/ locally, /tmp/bus_jo_data on Vercel).
 export const db = {
@@ -126,4 +137,5 @@ export const db = {
   price: new JsonCollection<Price>('prices'),
   setting: new JsonCollection<Setting>('settings'),
   visitor: new JsonCollection<Visitor>('visitors'),
+  city: new JsonCollection<City>('cities'),
 };

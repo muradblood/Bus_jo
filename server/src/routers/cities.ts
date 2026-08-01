@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { router, publicProcedure } from '../trpc.js';
+import { TRPCError } from '@trpc/server';
+import { router, publicProcedure, adminProcedure } from '../trpc.js';
+import { db } from '../db.js';
 
 // Saudi + Gulf cities data (subset for server-side)
 const CITIES = [
@@ -40,29 +42,67 @@ const CITIES = [
   { name: 'بغداد', lat: 33.3128, lng: 44.3615, region: 'بغداد', country: 'العراق' },
 ];
 
+function ensureSeeded() {
+  if (db.city.count() > 0) return;
+  CITIES.forEach((city, index) => db.city.create({ data: { id: index + 1, ...city } }));
+}
+
+function listCities() {
+  ensureSeeded();
+  return db.city.findMany({ orderBy: { name: 'asc' } });
+}
+
 export const citiesRouter = router({
   list: publicProcedure.query(async () => {
-    return CITIES;
+    return listCities();
   }),
 
   search: publicProcedure
     .input(z.object({ query: z.string() }))
     .query(async ({ input }) => {
-      const q = input.query.toLowerCase();
-      return CITIES.filter(c =>
+      const q = input.query.trim().toLowerCase();
+      return listCities().filter(c =>
         c.name.includes(input.query) ||
         c.region.includes(input.query) ||
-        c.country.includes(input.query)
+        c.country.includes(input.query) ||
+        c.name.toLowerCase().includes(q) ||
+        c.region.toLowerCase().includes(q) ||
+        c.country.toLowerCase().includes(q)
       );
     }),
 
   autoComplete: publicProcedure
     .input(z.object({ query: z.string() }))
     .query(async ({ input }) => {
-      if (!input.query.trim()) return CITIES.slice(0, 10);
-      return CITIES.filter(c =>
+      const cities = listCities();
+      if (!input.query.trim()) return cities.slice(0, 10);
+      return cities.filter(c =>
         c.name.includes(input.query) ||
         c.region.includes(input.query)
       ).slice(0, 10);
+    }),
+
+  create: adminProcedure
+    .input(z.object({
+      name: z.string().trim().min(2).max(120),
+      region: z.string().trim().max(120).default(''),
+      country: z.string().trim().max(120).default('السعودية'),
+      lat: z.number().finite().min(-90).max(90).default(0),
+      lng: z.number().finite().min(-180).max(180).default(0),
+    }))
+    .mutation(async ({ input }) => {
+      ensureSeeded();
+      const duplicate = db.city.findFirst({ where: { name: input.name } });
+      if (duplicate) {
+        throw new TRPCError({ code: 'CONFLICT', message: 'المدينة موجودة مسبقاً' });
+      }
+      return db.city.create({ data: input });
+    }),
+
+  delete: adminProcedure
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input }) => {
+      db.city.delete({ where: { id: input.id } });
+      return { success: true };
     }),
 });

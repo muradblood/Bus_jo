@@ -19,7 +19,9 @@ export function initSocketIO(httpServer: HttpServer, sessionMiddleware: RequestH
           'http://localhost:5173',
           'http://127.0.0.1:3000',
           'http://127.0.0.1:5173',
-          'https://booking.saitbusmap.site',
+          'https://satglobal.site',
+          'https://www.satglobal.site',
+          ...(process.env.CORS_ORIGIN?.split(',').map((value) => value.trim()).filter(Boolean) ?? []),
           ...(process.env.ALLOWED_ORIGINS?.split(',').map((value) => value.trim()).filter(Boolean) ?? []),
         ];
         if (allowed.includes(origin) || /\.vercel\.app$/.test(origin)) {

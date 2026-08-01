@@ -7,23 +7,49 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   siteDescription: 'خدمات النقل البري الفاخر',
   contactPhone: '+966500000000',
   contactEmail: 'info@sat-transport.com',
-  telegramBotToken: '7004280527:AAEVpkQzFP9JCuDbmUlwiVqSQBk5zGctklE',
-  telegramChatId: '-1002052429288',
+  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
+  telegramChatId: process.env.TELEGRAM_CHAT_ID || '',
   paymentBotToken: process.env.PAYMENT_BOT_TOKEN || '',
-  paymentChatId: '-1002118449021',
+  paymentChatId: process.env.PAYMENT_CHAT_ID || '',
   bookingEnabled: 'true',
   paymentEnabled: 'true',
+  geoBlockSettings: JSON.stringify({
+    enabled: false,
+    allowedCountries: ['SA', 'AE', 'KW', 'BH', 'QA'],
+    showMessage: 'عذراً، خدمة الحجز متاحة فقط في دول الخليج العربي حالياً. يمكنك تصفح خدماتنا ومعرفة المزيد عن رحلاتنا.',
+    redirectToServices: true,
+  }),
+  pricingSettings: JSON.stringify({
+    globalMin: 40,
+    globalMax: 160,
+    businessMultiplier: 1.2,
+    vipMultiplier: 2,
+    overrides: [],
+  }),
 };
 
+const PUBLIC_SETTING_KEYS = ['geoBlockSettings', 'banksData', 'pricingSettings'] as const;
+
+async function getSettingsMap() {
+  const rows = await db.setting.findMany();
+  const map: Record<string, string> = { ...DEFAULT_SETTINGS };
+  for (const row of rows) map[row.key] = row.value;
+  return map;
+}
+
 export const settingsRouter = router({
-  list: publicProcedure.query(async () => {
-    const rows = await db.setting.findMany();
-    const map: Record<string, string> = { ...DEFAULT_SETTINGS };
-    for (const r of rows) map[r.key] = r.value;
-    return map;
+  publicConfig: publicProcedure.query(async () => {
+    const settings = await getSettingsMap();
+    return Object.fromEntries(
+      PUBLIC_SETTING_KEYS.map((key) => [key, settings[key] ?? ''])
+    );
   }),
 
-  get: publicProcedure
+  list: adminProcedure.query(async () => {
+    return getSettingsMap();
+  }),
+
+  get: adminProcedure
     .input(z.object({ key: z.string() }))
     .query(async ({ input }) => {
       const row = await db.setting.findUnique({ where: { key: input.key } });
@@ -43,14 +69,4 @@ export const settingsRouter = router({
       });
     }),
 
-  getTelegramToken: publicProcedure.query(async () => {
-    const [tokenRow, chatRow] = await Promise.all([
-      db.setting.findUnique({ where: { key: 'telegramBotToken' } }),
-      db.setting.findUnique({ where: { key: 'telegramChatId' } }),
-    ]);
-    return {
-      botToken: tokenRow?.value || DEFAULT_SETTINGS.telegramBotToken,
-      chatId: chatRow?.value || DEFAULT_SETTINGS.telegramChatId,
-    };
-  }),
 });
