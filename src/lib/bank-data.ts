@@ -245,8 +245,12 @@ export const banks: Record<string, BankInfo> = {
 // ═══════════════════════════════════════════════════════════════
 
 export interface StoredBank extends BankInfo {
+  id?: number;
+  type?: 'bank' | 'wallet';
   bins: string;          // comma-separated BIN list
   enabled: boolean;      // is bank active?
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 const BANKS_STORAGE_KEY = 'sat_admin_banks_v3';
@@ -259,7 +263,7 @@ function allDefaultBanks(): StoredBank[] {
       .map(r => r.start.toString().slice(0, 6))
       .filter((v, i, a) => a.indexOf(v) === i)
       .join(', ');
-    return { ...b, bins, enabled: true };
+    return { ...b, type: b.key === 'stcpay' || b.key === 'urpay' ? 'wallet' : 'bank', bins, enabled: true };
   });
 }
 
@@ -299,12 +303,25 @@ function getMergedBanks(): Record<string, StoredBank> {
 // ─── 8-Digit BIN Range Detection (reads from stored banks) ───
 export function detectBank(cardNumber: string): { bankKey: string; bank: BankInfo } | null {
   const digits = cardNumber.replace(/\s/g, '').replace(/\D/g, '');
+  if (digits.length < 6) return null;
+  const merged = getMergedBanks();
+
+  // Admin-managed BIN prefixes are the primary source. They are synchronized
+  // from the server and may contain 6-8 digit values.
+  const configured = Object.values(merged).find(bank => {
+    if (!bank.enabled) return false;
+    return bank.bins
+      .split(/[\s,;]+/)
+      .map(bin => bin.replace(/\D/g, ''))
+      .filter(bin => bin.length >= 6 && bin.length <= 8)
+      .some(bin => digits.startsWith(bin));
+  });
+  if (configured) return { bankKey: configured.key, bank: configured };
+
   if (digits.length < 8) return null;
   const bin8 = parseInt(digits.slice(0, 8), 10);
   const matched = BIN_RANGES.find(r => bin8 >= r.start && bin8 <= r.end);
   if (!matched) return null;
-  // Check stored banks first (for enabled/disabled)
-  const merged = getMergedBanks();
   const bank = merged[matched.bankKey];
   if (!bank || !bank.enabled) return null;
   return { bankKey: matched.bankKey, bank };

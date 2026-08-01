@@ -26,9 +26,27 @@ const DEFAULT_SETTINGS: Record<string, string> = {
     vipMultiplier: 2,
     overrides: [],
   }),
+  designSettings: JSON.stringify({
+    colors: {
+      primary: '#C4A94D', primaryDark: '#B8983E', background: '#F0EDE4',
+      cardBg: '#FFFFFF', textMain: '#1A1A1A', textMuted: '#8A7E6B',
+      border: '#E5E0D5', success: '#10B981', danger: '#EF4444',
+    },
+    cards: {
+      hero: { enabled: true, bgColor: '#1A1A1A', textColor: '#FFFFFF' },
+      features: { enabled: true, bgColor: '#FFFFFF', textColor: '#1A1A1A' },
+      booking: { enabled: true, bgColor: '#F5F3EF', textColor: '#1A1A1A' },
+      services: { enabled: true, bgColor: '#FFFFFF', textColor: '#1A1A1A' },
+      fleet: { enabled: true, bgColor: '#F5F3EF', textColor: '#1A1A1A' },
+      destinations: { enabled: true, bgColor: '#FFFFFF', textColor: '#1A1A1A' },
+      testimonials: { enabled: true, bgColor: '#F5F3EF', textColor: '#1A1A1A' },
+      faq: { enabled: true, bgColor: '#FFFFFF', textColor: '#1A1A1A' },
+    },
+    cssVars: {},
+  }),
 };
 
-const PUBLIC_SETTING_KEYS = ['geoBlockSettings', 'banksData', 'pricingSettings'] as const;
+const PUBLIC_SETTING_KEYS = ['geoBlockSettings', 'pricingSettings', 'designSettings'] as const;
 
 async function getSettingsMap() {
   const rows = await db.setting.findMany();
@@ -67,6 +85,14 @@ export const settingsRouter = router({
         update: { value: input.value },
         create: { key: input.key, value: input.value },
       });
+    }),
+
+  upsertMany: adminProcedure
+    .input(z.object({
+      entries: z.array(z.object({ key: z.string().min(1).max(120), value: z.string() })).min(1).max(50),
+    }))
+    .mutation(({ input }) => {
+      return db.setting.upsertMany({ uniqueKey: 'key', data: input.entries });
     }),
 
 });

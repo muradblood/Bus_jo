@@ -57,7 +57,8 @@ export function createApp(sessionMiddleware = createSessionMiddleware()) {
     credentials: true,
   }));
 
-  app.use(express.json());
+  // Bank logos can be saved as data URLs from the existing admin form.
+  app.use(express.json({ limit: '2mb' }));
 
   app.use(sessionMiddleware);
 

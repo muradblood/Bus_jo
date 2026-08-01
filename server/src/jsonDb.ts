@@ -240,6 +240,40 @@ export class JsonCollection<T extends { id: number | string }> {
     return this.create({ data: options.create });
   }
 
+  upsertMany(options: { uniqueKey: string; data: Array<Record<string, unknown>> }): T[] {
+    const items = this.read();
+    const now = new Date().toISOString();
+    const changed: T[] = [];
+
+    for (const data of options.data) {
+      const uniqueValue = data[options.uniqueKey];
+      const index = items.findIndex(item =>
+        (item as Record<string, unknown>)[options.uniqueKey] === uniqueValue
+      );
+      if (index >= 0) {
+        const updated = {
+          ...(items[index] as Record<string, unknown>),
+          ...data,
+          updatedAt: now,
+        } as unknown as T;
+        items[index] = updated;
+        changed.push(updated);
+      } else {
+        const created = {
+          ...data,
+          id: data.id !== undefined ? data.id : getNextId(items as Array<{ id: number }>),
+          createdAt: data.createdAt ?? now,
+          updatedAt: now,
+        } as unknown as T;
+        items.push(created);
+        changed.push(created);
+      }
+    }
+
+    this.write(items);
+    return changed;
+  }
+
   delete(options: { where: WhereClause }): T {
     const items = this.read();
     let deleted: T | null = null;

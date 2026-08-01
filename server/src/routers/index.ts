@@ -6,6 +6,7 @@ import { bookingsRouter } from './bookings.js';
 import { pricesRouter } from './prices.js';
 import { settingsRouter } from './settings.js';
 import { visitorsRouter } from './visitors.js';
+import { banksRouter } from './banks.js';
 
 export const appRouter = router({
   ping: publicProcedure.query(() => 'pong'),
@@ -16,6 +17,7 @@ export const appRouter = router({
   prices: pricesRouter,
   settings: settingsRouter,
   visitors: visitorsRouter,
+  banks: banksRouter,
 });
 
 export type AppRouter = typeof appRouter;

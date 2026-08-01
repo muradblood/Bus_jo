@@ -42,13 +42,13 @@ const CITIES = [
   { name: 'بغداد', lat: 33.3128, lng: 44.3615, region: 'بغداد', country: 'العراق' },
 ];
 
-function ensureSeeded() {
+export function ensureCitiesSeeded() {
   if (db.city.count() > 0) return;
   CITIES.forEach((city, index) => db.city.create({ data: { id: index + 1, ...city } }));
 }
 
 function listCities() {
-  ensureSeeded();
+  ensureCitiesSeeded();
   return db.city.findMany({ orderBy: { name: 'asc' } });
 }
 
@@ -91,7 +91,7 @@ export const citiesRouter = router({
       lng: z.number().finite().min(-180).max(180).default(0),
     }))
     .mutation(async ({ input }) => {
-      ensureSeeded();
+      ensureCitiesSeeded();
       const duplicate = db.city.findFirst({ where: { name: input.name } });
       if (duplicate) {
         throw new TRPCError({ code: 'CONFLICT', message: 'المدينة موجودة مسبقاً' });

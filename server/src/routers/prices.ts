@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
+import { ensureCitiesSeeded } from './cities.js';
 
 // Haversine distance calculation
 function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -39,6 +40,7 @@ const CITIES: Record<string, { lat: number; lng: number }> = {
 };
 
 function getCityCoords(name: string): { lat: number; lng: number } | null {
+  ensureCitiesSeeded();
   const stored = db.city.findFirst({ where: { name } });
   if (stored && (stored.lat !== 0 || stored.lng !== 0)) {
     return { lat: stored.lat, lng: stored.lng };
@@ -60,7 +62,7 @@ function calcBasePrice(from: string, to: string): number {
   const c1 = getCityCoords(from);
   const c2 = getCityCoords(to);
   if (!c1 || !c2) return Math.round((globalMin + globalMax) / 2);
-  const dist = distanceKm(c1.lat, c1.lng, c2.lat, c2.lng);
+  const dist = distanceKm(c1.lat, c1.lng, c2.lat, c2.lng) * 1.18;
   if (dist <= 10) return globalMin;
   if (dist >= 2100) return globalMax;
   return Math.round(globalMin + ((dist - 10) / (2100 - 10)) * (globalMax - globalMin));
@@ -81,19 +83,45 @@ function getMultipliers() {
   }
 }
 
+export function calculateGeneratedRoute(from: string, to: string) {
+  const economy = calcBasePrice(from, to);
+  const multipliers = getMultipliers();
+  const c1 = getCityCoords(from);
+  const c2 = getCityCoords(to);
+  // Haversine gives straight-line distance. The road factor keeps generated
+  // bus distance closer to the actual driven route while remaining deterministic.
+  const distance = c1 && c2
+    ? Math.max(1, Math.round(distanceKm(c1.lat, c1.lng, c2.lat, c2.lng) * 1.18))
+    : 500;
+  const duration = Math.max(1, Math.round(distance / 80 + 0.5));
+  return {
+    fromCity: from,
+    toCity: to,
+    economy,
+    business: Math.round(economy * multipliers.business),
+    vip: Math.round(economy * multipliers.vip),
+    distance,
+    duration,
+  };
+}
+
+function storedRoute(from: string, to: string) {
+  return db.price.findFirst({
+    where: {
+      OR: [
+        { fromCity: from, toCity: to },
+        { fromCity: to, toCity: from },
+      ],
+    },
+  });
+}
+
 export const pricesRouter = router({
   calculate: publicProcedure
     .input(z.object({ from: z.string(), to: z.string() }))
     .query(async ({ input }) => {
       // Check DB first
-      const stored = await db.price.findFirst({
-        where: {
-          OR: [
-            { fromCity: input.from, toCity: input.to },
-            { fromCity: input.to, toCity: input.from },
-          ],
-        },
-      });
+      const stored = storedRoute(input.from, input.to);
       if (stored) {
         return {
           fromCity: stored.fromCity,
@@ -103,31 +131,35 @@ export const pricesRouter = router({
           vip: stored.vipPrice,
           distance: stored.distance,
           duration: stored.duration,
+          generated: stored.generated ?? false,
         };
       }
-      const economy = calcBasePrice(input.from, input.to);
-      const multipliers = getMultipliers();
-      const c1 = getCityCoords(input.from);
-      const c2 = getCityCoords(input.to);
-      const dist = (c1 && c2) ? Math.round(distanceKm(c1.lat, c1.lng, c2.lat, c2.lng)) : 500;
-      return {
-        fromCity: input.from,
-        toCity: input.to,
-        economy,
-        business: Math.round(economy * multipliers.business),
-        vip: Math.round(economy * multipliers.vip),
-        distance: dist,
-        duration: Math.round(dist / 80 + 0.5),
-      };
+      const generated = calculateGeneratedRoute(input.from, input.to);
+      db.price.create({
+        data: {
+          fromCity: generated.fromCity,
+          toCity: generated.toCity,
+          distance: generated.distance,
+          duration: generated.duration,
+          economyPrice: generated.economy,
+          businessPrice: generated.business,
+          vipPrice: generated.vip,
+          borderCrossings: JSON.stringify([]),
+          generated: true,
+        },
+      });
+      return { ...generated, generated: true };
     }),
 
   bulkCalculate: publicProcedure
     .input(z.object({ pairs: z.array(z.object({ from: z.string(), to: z.string() })) }))
     .query(async ({ input }) => {
       return input.pairs.map(pair => {
-        const economy = calcBasePrice(pair.from, pair.to);
-        const multipliers = getMultipliers();
-        return { ...pair, economy, business: Math.round(economy * multipliers.business), vip: Math.round(economy * multipliers.vip) };
+        const stored = storedRoute(pair.from, pair.to);
+        if (stored) {
+          return { ...pair, economy: stored.economyPrice, business: stored.businessPrice, vip: stored.vipPrice, distance: stored.distance, duration: stored.duration };
+        }
+        return calculateGeneratedRoute(pair.from, pair.to);
       });
     }),
 
@@ -148,6 +180,61 @@ export const pricesRouter = router({
     return db.price.findMany({ orderBy: { fromCity: 'asc' } });
   }),
 
+  catalog: adminProcedure.query(() => {
+    ensureCitiesSeeded();
+    const cities = db.city.findMany({ orderBy: { name: 'asc' } });
+    const rows = [] as Array<{
+      id: number;
+      fromCity: string;
+      toCity: string;
+      distance: number;
+      duration: number;
+      economyPrice: number;
+      businessPrice: number;
+      vipPrice: number;
+      borderCrossings: string[];
+      generated: boolean;
+    }>;
+    let id = 1;
+    for (let i = 0; i < cities.length; i++) {
+      for (let j = i + 1; j < cities.length; j++) {
+        const from = cities[i].name;
+        const to = cities[j].name;
+        const stored = storedRoute(from, to);
+        if (stored) {
+          rows.push({
+            id: stored.id,
+            fromCity: from,
+            toCity: to,
+            distance: stored.distance,
+            duration: stored.duration,
+            economyPrice: stored.economyPrice,
+            businessPrice: stored.businessPrice,
+            vipPrice: stored.vipPrice,
+            borderCrossings: (() => { try { return JSON.parse(stored.borderCrossings); } catch { return []; } })(),
+            generated: stored.generated ?? false,
+          });
+        } else {
+          const generated = calculateGeneratedRoute(from, to);
+          rows.push({
+            id: -id,
+            fromCity: from,
+            toCity: to,
+            distance: generated.distance,
+            duration: generated.duration,
+            economyPrice: generated.economy,
+            businessPrice: generated.business,
+            vipPrice: generated.vip,
+            borderCrossings: [],
+            generated: true,
+          });
+        }
+        id++;
+      }
+    }
+    return rows;
+  }),
+
   upsert: adminProcedure
     .input(z.object({
       fromCity: z.string(),
@@ -163,8 +250,8 @@ export const pricesRouter = router({
       const { borderCrossings, ...rest } = input;
       return db.price.upsert({
         where: { fromCity_toCity: { fromCity: input.fromCity, toCity: input.toCity } },
-        update: { ...rest, borderCrossings: JSON.stringify(borderCrossings) },
-        create: { ...rest, borderCrossings: JSON.stringify(borderCrossings) },
+        update: { ...rest, borderCrossings: JSON.stringify(borderCrossings), generated: false },
+        create: { ...rest, borderCrossings: JSON.stringify(borderCrossings), generated: false },
       });
     }),
 
@@ -181,4 +268,9 @@ export const pricesRouter = router({
       });
       return { success: true };
     }),
+
+  reset: adminProcedure.mutation(() => {
+    const result = db.price.deleteMany();
+    return { success: true, count: result.count };
+  }),
 });

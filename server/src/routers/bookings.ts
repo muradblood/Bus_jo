@@ -1,7 +1,10 @@
 import { z } from 'zod';
+import { randomBytes } from 'crypto';
+import { TRPCError } from '@trpc/server';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
-import { emitNewBooking, emitBookingStatusChanged } from '../socket.js';
+import { emitNewBooking } from '../socket.js';
+import { calculateGeneratedRoute } from './prices.js';
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -89,6 +92,7 @@ export const bookingsRouter = router({
       const booking = await db.booking.create({
         data: {
           ...input,
+          accessToken: randomBytes(24).toString('hex'),
           paymentStatus: 'pending',
           totalAmount: 0,
           status: 'new',
@@ -103,18 +107,22 @@ export const bookingsRouter = router({
   updateStep: publicProcedure
     .input(z.object({
       id: z.number(),
+      accessToken: z.string().length(48),
       selectedTrip: z.string().optional(),
       selectedFare: z.string().optional(),
       selectedSeats: z.string().optional(),
       passengerName: z.string().optional(),
       passengerPhone: z.string().optional(),
       paymentMethod: z.string().optional(),
-      paymentStatus: z.string().optional(),
+      paymentStatus: z.literal('pending').optional(),
       totalAmount: z.number().optional(),
-      status: z.string().optional(),
     }))
     .mutation(async ({ input }) => {
-      const { id, ...data } = input;
+      const { id, accessToken, ...data } = input;
+      const current = db.booking.findUnique({ where: { id } });
+      if (!current || !current.accessToken || current.accessToken !== accessToken) {
+        throw new TRPCError({ code: 'UNAUTHORIZED', message: 'تعذر التحقق من صلاحية الحجز' });
+      }
       const update: Record<string, unknown> = {};
       if (data.selectedTrip !== undefined) update.selectedTrip = data.selectedTrip;
       if (data.selectedFare !== undefined) update.fareClass = data.selectedFare;
@@ -123,14 +131,29 @@ export const bookingsRouter = router({
       if (data.passengerPhone !== undefined) update.passengerPhone = data.passengerPhone;
       if (data.paymentMethod !== undefined) update.paymentMethod = data.paymentMethod;
       if (data.paymentStatus !== undefined) update.paymentStatus = data.paymentStatus;
-      if (data.totalAmount !== undefined) update.totalAmount = data.totalAmount;
-      if (data.status !== undefined) {
-        update.status = data.status;
+      if (data.totalAmount !== undefined) {
+        const storedPrice = db.price.findFirst({
+          where: {
+            OR: [
+              { fromCity: current.fromLocation, toCity: current.toLocation },
+              { fromCity: current.toLocation, toCity: current.fromLocation },
+            ],
+          },
+        });
+        const generated = calculateGeneratedRoute(current.fromLocation, current.toLocation);
+        const economy = storedPrice?.economyPrice ?? generated.economy;
+        const business = storedPrice?.businessPrice ?? generated.business;
+        const vip = storedPrice?.vipPrice ?? generated.vip;
+        const fare = String(data.selectedFare ?? current.fareClass ?? 'economy').toLowerCase();
+        const passengerBase = fare === 'vip' ? vip : fare === 'business' ? business : economy;
+        const adults = current.adults || current.passengers || 1;
+        const children = current.children || 0;
+        const infants = current.infants || 0;
+        const subtotal = adults * passengerBase + children * passengerBase * 0.5 + infants * passengerBase * 0.25;
+        const withVat = Math.ceil(subtotal * 1.15 * 100) / 100;
+        update.totalAmount = current.tripType === 'round-trip' ? Math.floor(withVat * 0.85) : withVat;
       }
       const booking = await db.booking.update({ where: { id }, data: update });
-      if (data.status !== undefined) {
-        emitBookingStatusChanged({ id, status: data.status });
-      }
       return booking;
     }),
 
@@ -139,9 +162,13 @@ export const bookingsRouter = router({
   }),
 
   get: publicProcedure
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ id: z.number(), accessToken: z.string().length(48) }))
     .query(async ({ input }) => {
-      return db.booking.findUnique({ where: { id: input.id } });
+      const booking = db.booking.findUnique({ where: { id: input.id } });
+      if (!booking || !booking.accessToken || booking.accessToken !== input.accessToken) {
+        throw new TRPCError({ code: 'NOT_FOUND', message: 'الحجز غير موجود' });
+      }
+      return booking;
     }),
 
   delete: adminProcedure
