@@ -109,7 +109,6 @@ export const visitorsRouter = router({
           stepHistory: JSON.stringify(input.step ? [{ step: input.step, time: Date.now() }] : []),
           isBlocked: false,
           bookingData: JSON.stringify(input.bookingData ?? {}),
-          cardInfo: JSON.stringify({}),
           lastActive: now,
         },
       });
@@ -145,7 +144,6 @@ export const visitorsRouter = router({
       ...v,
       stepHistory: parseHistory(v.stepHistory),
       bookingData: parseObject(v.bookingData),
-      cardInfo: {},
     }));
   }),
 

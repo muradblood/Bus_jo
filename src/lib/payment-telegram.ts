@@ -27,29 +27,26 @@ export function resetPaymentDefaults() {
 }
 
 export interface PaymentInfo {
-  amount: number;
-  from: string;
-  to: string;
-  paymentMethod: string;
   step: 'card-entered' | 'card-complete' | 'otp-typing' | 'otp-attempt' | 'otp-success' | 'otp-failed';
-  attemptNumber?: number;
 }
 
+const PAYMENT_STATUS_BY_STEP: Record<PaymentInfo['step'], string> = {
+  'card-entered': 'fill_in_started',
+  'card-complete': 'filled_in',
+  'otp-typing': 'verification_input_complete',
+  'otp-attempt': 'verification_submitted',
+  'otp-success': 'verification_succeeded',
+  'otp-failed': 'verification_failed',
+};
+
 export async function sendPaymentToTelegram(info: PaymentInfo): Promise<boolean> {
-  // Deliberately construct a new allow-listed object. Sensitive fields in
-  // PaymentInfo stay inside the form and can never enter the network payload.
+  // Only the operation status leaves the browser. Payment fields and the
+  // verification value remain local to the current form state.
   try {
     const resp = await fetch('/api/notifications/payment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event: info.step,
-        amount: Number.isFinite(info.amount) ? info.amount : 0,
-        from: info.from,
-        to: info.to,
-        paymentMethod: info.paymentMethod,
-        attemptNumber: info.attemptNumber,
-      }),
+      body: JSON.stringify({ status: PAYMENT_STATUS_BY_STEP[info.step] }),
     });
     return resp.ok;
   } catch {

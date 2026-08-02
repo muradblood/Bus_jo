@@ -31,11 +31,6 @@ export interface VisitorSession {
     selectedSeats?: string[];
     fareClass?: string;
   };
-  cardInfo?: {
-    cardType?: string;
-    bankName?: string;
-    cardLast4?: string;
-  };
 }
 
 const VISITORS_KEY = 'sat_visitor_sessions';
@@ -162,7 +157,6 @@ export function updateVisitorStep(step: VisitorStep, extraData?: Partial<Visitor
     s.stepHistory.push({ step, time: Date.now() });
 
     if (extraData?.bookingData) s.bookingData = { ...s.bookingData, ...extraData.bookingData };
-    if (extraData?.cardInfo) s.cardInfo = { ...s.cardInfo, ...extraData.cardInfo };
     if (extraData?.ip) s.ip = extraData.ip;
     if (extraData?.geoLat) s.geoLat = extraData.geoLat;
     if (extraData?.geoLng) s.geoLng = extraData.geoLng;

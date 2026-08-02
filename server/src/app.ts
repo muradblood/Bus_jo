@@ -8,6 +8,7 @@ import { JsonSessionStore } from './sessionStore.js';
 import type { RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { sendBookingNotification, sendPaymentNotification } from './telegramNotifications.js';
+import { getDatabaseHealth } from './sqliteDb.js';
 
 export function createSessionMiddleware(): RequestHandler {
   const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -125,7 +126,16 @@ export function createApp(sessionMiddleware = createSessionMiddleware()) {
   );
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
+    const database = getDatabaseHealth();
+    const healthy = database.integrity === 'ok' && database.foreignKeyViolations === 0;
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'ok' : 'degraded',
+      time: new Date().toISOString(),
+      database: {
+        integrity: database.integrity,
+        foreignKeyViolations: database.foreignKeyViolations,
+      },
+    });
   });
 
   return app;

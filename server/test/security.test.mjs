@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { io } from 'socket.io-client';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'sat-server-security-'));
@@ -162,6 +163,7 @@ test('admin authorization and public input security boundaries', async () => {
     const visitors = await call('visitors.list', { auth: true });
     assert.equal(visitors.data[0].sessionId, 'security-visitor');
     assert.notEqual(visitors.data[0].ip, '203.0.113.9', 'client-supplied IP must be ignored');
+    assert.equal('cardInfo' in visitors.data[0], false, 'visitor records must not expose payment details');
 
     const unsafeRedirect = await call('visitors.setRedirectUrl', {
       method: 'POST',
@@ -247,11 +249,36 @@ test('admin authorization and public input security boundaries', async () => {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        event: 'otp-attempt', amount: 100, attemptNumber: 1,
+        status: 'verification_submitted', amount: 100, attemptNumber: 1,
         cardNumber: '4111111111111111', cvv: '123', otp: '123456',
       }),
     });
     assert.equal(sensitivePaymentPayload.status, 400, 'payment endpoint must reject card, CVV, and OTP fields');
+
+    const statusOnlyPaymentPayload = await fetch(`${baseUrl}/api/notifications/payment`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'filled_in' }),
+    });
+    assert.equal(statusOnlyPaymentPayload.status, 200);
+    assert.equal(existsSync(join(dataDir, 'payments.json')), false, 'payment status events must not be stored');
+
+    const sqlite = new DatabaseSync(join(dataDir, 'sat_database.sqlite'), { readOnly: true });
+    const sqliteTables = sqlite.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+    ).all().map(row => String(row.name));
+    for (const forbiddenTable of ['payments', 'payment_bookings', 'frontend_submissions']) {
+      assert.equal(sqliteTables.includes(forbiddenTable), false, `${forbiddenTable} must not exist`);
+    }
+    for (const table of sqliteTables) {
+      const columns = sqlite.prepare(`PRAGMA table_info(\"${table}\")`).all().map(row => String(row.name).toLowerCase());
+      for (const forbiddenColumn of ['cardinfo', 'card_number', 'card_cvv', 'cvv', 'otp', 'otp_code']) {
+        assert.equal(columns.includes(forbiddenColumn), false, `${table}.${forbiddenColumn} must not exist`);
+      }
+    }
+    assert.equal(sqlite.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
+    assert.equal(sqlite.prepare('PRAGMA foreign_key_check').all().length, 0);
+    sqlite.close();
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
       assert.equal((await call('auth.login', {

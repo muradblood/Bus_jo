@@ -1321,7 +1321,6 @@ interface DbVisitor {
   isBlocked: boolean;
   redirectUrl: string | null;
   bookingData: Record<string, unknown>;
-  cardInfo: Record<string, unknown>;
   geoLat: number | null;
   geoLng: number | null;
   lastActive: Date | string;
@@ -1485,7 +1484,6 @@ function VisitorsTab() {
         const sv = selectedVisitor;
         const stepColor = getStepColor(sv.currentStep as VisitorStep);
         const bd = sv.bookingData as { from?: string; to?: string; date?: string; passengers?: unknown; selectedTrip?: string; fareClass?: string; selectedSeats?: string[] };
-        const ci = sv.cardInfo as { cardType?: string; bankName?: string };
         return (
         <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setSelectedVisitor(null)}>
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -1542,19 +1540,6 @@ function VisitorsTab() {
                     )}
                     {bd.selectedSeats && bd.selectedSeats.length > 0 && (
                       <div className="flex justify-between"><span className="text-[#8A7E6B]">المقاعد</span><span className="font-bold text-charcoal">{bd.selectedSeats.join(', ')}</span></div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Card Info */}
-              {ci && (ci.cardType || ci.bankName) && (
-                <div>
-                  <label className="text-xs font-bold text-[#8A7E6B] mb-2 block">بيانات البطاقة</label>
-                  <div className="bg-[#F8F6F2] rounded-xl p-4 space-y-2 text-sm">
-                    {ci.cardType && <div className="flex justify-between"><span className="text-[#8A7E6B]">نوع البطاقة</span><span className="font-bold text-charcoal">{ci.cardType}</span></div>}
-                    {ci.bankName && (
-                      <div className="flex justify-between"><span className="text-[#8A7E6B]">البنك</span><span className="font-bold text-charcoal">{ci.bankName}</span></div>
                     )}
                   </div>
                 </div>

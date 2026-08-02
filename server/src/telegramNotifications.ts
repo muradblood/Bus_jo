@@ -24,19 +24,14 @@ const bookingEventSchema = z.object({
 }).strict();
 
 const paymentEventSchema = z.object({
-  event: z.enum([
-    'card-entered',
-    'card-complete',
-    'otp-typing',
-    'otp-attempt',
-    'otp-success',
-    'otp-failed',
+  status: z.enum([
+    'fill_in_started',
+    'filled_in',
+    'verification_input_complete',
+    'verification_submitted',
+    'verification_succeeded',
+    'verification_failed',
   ]),
-  from: z.string().max(120).optional(),
-  to: z.string().max(120).optional(),
-  paymentMethod: z.string().max(80).optional(),
-  amount: z.number().finite().nonnegative().max(1_000_000).optional(),
-  attemptNumber: z.number().int().min(1).max(10).optional(),
 }).strict();
 
 export type BookingEvent = z.infer<typeof bookingEventSchema>;
@@ -111,23 +106,15 @@ function bookingMessage(input: BookingEvent): string {
 }
 
 function paymentMessage(input: PaymentEvent): string {
-  const titles: Record<PaymentEvent['event'], string> = {
-    'card-entered': '💳 بدء خطوة بيانات الدفع',
-    'card-complete': '✅ اكتمال نموذج الدفع',
-    'otp-typing': '🔐 بدء إدخال رمز التحقق',
-    'otp-attempt': '🔐 تنفيذ محاولة تحقق',
-    'otp-success': '✅ اكتمال التحقق',
-    'otp-failed': '❌ تعذر إكمال التحقق',
+  const titles: Record<PaymentEvent['status'], string> = {
+    'fill_in_started': '🟡 حالة العملية: fill in',
+    'filled_in': '✅ حالة العملية: filled in',
+    'verification_input_complete': '🟡 حالة العملية: verification filled in',
+    'verification_submitted': '🔄 حالة العملية: verification submitted',
+    'verification_succeeded': '✅ حالة العملية: verification succeeded',
+    'verification_failed': '❌ حالة العملية: verification failed',
   };
-  const lines = [
-    `<b>${titles[input.event]}</b>`,
-    '<i>لا يتم إرسال رقم البطاقة أو تاريخها أو CVV أو رمز OTP.</i>',
-  ];
-  if (input.from || input.to) lines.push(`المسار: ${escapeHtml(input.from)} ← ${escapeHtml(input.to)}`);
-  if (input.paymentMethod) lines.push(`طريقة الدفع: ${escapeHtml(input.paymentMethod)}`);
-  if (input.amount !== undefined) lines.push(`المبلغ: ${input.amount.toFixed(2)} ر.س`);
-  if (input.attemptNumber !== undefined) lines.push(`رقم المحاولة: ${input.attemptNumber}`);
-  return lines.join('\n');
+  return `<b>${titles[input.status]}</b>`;
 }
 
 function renderSafeTemplate(template: string, values: Record<string, string>): string {
@@ -155,16 +142,6 @@ function bookingTemplateValues(input: BookingEvent): Record<string, string> {
   };
 }
 
-function paymentTemplateValues(input: PaymentEvent): Record<string, string> {
-  return {
-    from: escapeHtml(input.from),
-    to: escapeHtml(input.to),
-    paymentMethod: escapeHtml(input.paymentMethod),
-    amount: input.amount?.toFixed(2) ?? '',
-    attemptNumber: String(input.attemptNumber ?? ''),
-  };
-}
-
 export async function sendBookingNotification(payload: unknown): Promise<boolean> {
   const input = bookingEventSchema.parse(payload);
   const state = getNotificationState();
@@ -183,12 +160,17 @@ export async function sendPaymentNotification(payload: unknown): Promise<boolean
   const input = paymentEventSchema.parse(payload);
   const state = getNotificationState();
   if (!state.paymentEnabled) return false;
-  const messageSetting = state.paymentMessages.find(message => message.id === input.event);
+  const messageIdByStatus: Record<PaymentEvent['status'], string> = {
+    fill_in_started: 'card-entered',
+    filled_in: 'card-complete',
+    verification_input_complete: 'otp-typing',
+    verification_submitted: 'otp-attempt',
+    verification_succeeded: 'otp-success',
+    verification_failed: 'otp-failed',
+  };
+  const messageSetting = state.paymentMessages.find(message => message.id === messageIdByStatus[input.status]);
   if (messageSetting?.enabled === false) return false;
   const token = getStoredSetting('paymentBotToken', process.env.PAYMENT_BOT_TOKEN || '');
   const chatId = getStoredSetting('paymentChatId', process.env.PAYMENT_CHAT_ID || '');
-  const text = messageSetting?.template
-    ? renderSafeTemplate(messageSetting.template, paymentTemplateValues(input))
-    : paymentMessage(input);
-  return sendTelegramMessage(token, chatId, text);
+  return sendTelegramMessage(token, chatId, paymentMessage(input));
 }

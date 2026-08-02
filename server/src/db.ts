@@ -1,4 +1,4 @@
-import { JsonCollection } from './jsonDb.js';
+import { SqliteCollection } from './sqliteDb.js';
 
 // Model type definitions
 export interface Admin {
@@ -128,7 +128,6 @@ export interface Visitor {
   isBlocked: boolean;
   redirectUrl?: string;
   bookingData: string;
-  cardInfo: string;
   geoLat?: number;
   geoLng?: number;
   lastActive: string;
@@ -147,18 +146,18 @@ export interface City {
   updatedAt: string;
 }
 
-// JSON file-based database — no external DB required.
-// Data is stored in JSON files (data/ locally, /tmp/bus_jo_data on Vercel).
+// Embedded SQLite database — no external database service required.
+// Legacy JSON collections are imported automatically on the first start.
 export const db = {
-  admin: new JsonCollection<Admin>('admins'),
-  session: new JsonCollection<Session>('sessions'),
-  booking: new JsonCollection<Booking>('bookings'),
-  contact: new JsonCollection<Contact>('contacts'),
-  review: new JsonCollection<Review>('reviews'),
-  notification: new JsonCollection<Notification>('notifications'),
-  price: new JsonCollection<Price>('prices'),
-  bank: new JsonCollection<Bank>('banks'),
-  setting: new JsonCollection<Setting>('settings'),
-  visitor: new JsonCollection<Visitor>('visitors'),
-  city: new JsonCollection<City>('cities'),
+  admin: new SqliteCollection<Admin>('admins'),
+  session: new SqliteCollection<Session>('sessions'),
+  booking: new SqliteCollection<Booking>('bookings', new Set(['isNew'])),
+  contact: new SqliteCollection<Contact>('contacts'),
+  review: new SqliteCollection<Review>('reviews', new Set(['approved'])),
+  notification: new SqliteCollection<Notification>('notifications', new Set(['isRead'])),
+  price: new SqliteCollection<Price>('prices', new Set(['generated'])),
+  bank: new SqliteCollection<Bank>('banks', new Set(['enabled'])),
+  setting: new SqliteCollection<Setting>('settings'),
+  visitor: new SqliteCollection<Visitor>('visitors', new Set(['isBlocked'])),
+  city: new SqliteCollection<City>('cities'),
 };
