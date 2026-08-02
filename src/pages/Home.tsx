@@ -39,6 +39,7 @@ const Home: React.FC = () => {
   const { user } = useAuth();
   const { geo, isBlocked } = useGeoBlock();
   const [bookingData, setBookingData] = useState<BookingData | null>(null);
+  const [visitorBlocked, setVisitorBlocked] = useState(false);
   const trackVisitor = trpc.visitors.track.useMutation();
 
   // Track visitor on page load
@@ -52,21 +53,22 @@ const Home: React.FC = () => {
       .then(({ ip }) => { notifyVisitorEntry(ip, navigator.userAgent, window.location.pathname); })
       .catch(() => { notifyVisitorEntry('unknown', navigator.userAgent, window.location.pathname); });
 
+    const applyVisitorState = (data: { blocked?: boolean; redirectUrl?: string | null } | undefined) => {
+      if (!data) return;
+      setVisitorBlocked(data.blocked === true);
+      if (!data.blocked && data.redirectUrl) window.location.href = data.redirectUrl;
+    };
+
     trackVisitor.mutate(
       { sessionId, page: window.location.pathname, userAgent: navigator.userAgent, step: 'home' },
-      {
-        onSuccess: (data) => {
-          if (data?.blocked) {
-            document.body.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;height:100vh;font-family:sans-serif;"><h1>تم حظرك من الوصول إلى هذا الموقع</h1></div>';
-          } else if (data?.redirectUrl) {
-            window.location.href = data.redirectUrl;
-          }
-        },
-      }
+      { onSuccess: applyVisitorState },
     );
 
     const interval = setInterval(() => {
-      trackVisitor.mutate({ sessionId, page: window.location.pathname, userAgent: navigator.userAgent });
+      trackVisitor.mutate(
+        { sessionId, page: window.location.pathname, userAgent: navigator.userAgent },
+        { onSuccess: applyVisitorState },
+      );
     }, 30000);
 
     return () => clearInterval(interval);
@@ -101,6 +103,14 @@ const Home: React.FC = () => {
   // ─── Geo Block Check ───
   const showBlockedPage = !bookingData && isBlocked;
 
+  if (visitorBlocked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center font-sans" dir="rtl" lang="ar">
+        <h1>تم حظرك من الوصول إلى هذا الموقع</h1>
+      </div>
+    );
+  }
+
   if (showBlockedPage) {
     return (
       <div className="min-h-screen w-full" dir="rtl" lang="ar">
@@ -114,7 +124,7 @@ const Home: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-surface-alt" dir="rtl" lang="ar">
+    <div className="sat-public-theme min-h-screen bg-surface-alt" dir="rtl" lang="ar">
       {bookingData && (
         <SearchResults bookingData={bookingData} onClose={handleCloseResults} />
       )}

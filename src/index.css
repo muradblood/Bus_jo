@@ -52,6 +52,43 @@
   }
 }
 
+/* Public theme overrides are opt-in. Existing installations keep their exact
+   appearance until an administrator changes a design control. */
+html[data-sat-theme="custom"] .sat-public-theme {
+  background-color: var(--sat-bg, #F5F5F5) !important;
+  color: var(--sat-text, #2C2C2C);
+}
+
+html[data-sat-theme="custom"] .sat-public-theme .gold-gradient {
+  background: linear-gradient(135deg, var(--sat-primary, #C5AA4E), var(--sat-primary-dark, #7A5F10));
+}
+
+html[data-sat-theme="custom"] .sat-public-theme .text-brand-gold {
+  color: var(--sat-primary, #9A7B1A) !important;
+}
+
+html[data-sat-theme="custom"] .sat-public-theme .bg-brand-gold {
+  background-color: var(--sat-primary, #9A7B1A) !important;
+}
+
+html[data-sat-theme="custom"] .sat-section-hero {
+  display: var(--sat-card-hero-display, block);
+  background-color: var(--sat-card-hero-bg, #F5F5F5) !important;
+  color: var(--sat-card-hero-text, inherit);
+}
+
+html[data-sat-theme="custom"] .sat-section-booking {
+  display: var(--sat-card-booking-display, block);
+  background-color: var(--sat-card-booking-bg, transparent);
+  color: var(--sat-card-booking-text, inherit);
+}
+
+html[data-sat-theme="custom"] .sat-section-services {
+  display: var(--sat-card-services-display, block);
+  background-color: var(--sat-card-services-bg, var(--sat-primary, #9A7B1A)) !important;
+  color: var(--sat-card-services-text, inherit);
+}
+
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none;

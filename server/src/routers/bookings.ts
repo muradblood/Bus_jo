@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { TRPCError } from '@trpc/server';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
-import { emitNewBooking } from '../socket.js';
+import { emitBookingUpdated, emitNewBooking } from '../socket.js';
 import { calculateGeneratedRoute } from './prices.js';
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -25,19 +25,35 @@ const getTodayDateOnly = () => {
 };
 
 const bookingCreateInput = z.object({
-  tripType: z.string().optional().default('one-way'),
-  fromLocation: z.string(),
-  toLocation: z.string(),
-  pickupDate: z.string(),
-  pickupTime: z.string().optional().default('10:00'),
-  returnDate: z.string().optional(),
-  returnTime: z.string().optional(),
-  passengers: z.number().optional().default(1),
-  adults: z.number().optional().default(1),
-  children: z.number().optional().default(0),
-  infants: z.number().optional().default(0),
+  tripType: z.enum(['one-way', 'round-trip']).optional().default('one-way'),
+  fromLocation: z.string().trim().min(2).max(120),
+  toLocation: z.string().trim().min(2).max(120),
+  pickupDate: z.string().max(10),
+  pickupTime: z.string().max(20).optional().default('10:00'),
+  returnDate: z.string().max(10).optional(),
+  returnTime: z.string().max(20).optional(),
+  passengers: z.number().int().min(1).max(20).optional().default(1),
+  adults: z.number().int().min(1).max(8).optional().default(1),
+  children: z.number().int().min(0).max(6).optional().default(0),
+  infants: z.number().int().min(0).max(4).optional().default(0),
 }).superRefine((input, ctx) => {
   const today = getTodayDateOnly();
+
+  if (input.fromLocation === input.toLocation) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['toLocation'],
+      message: 'مدينتا الانطلاق والوصول متطابقتان',
+    });
+  }
+
+  if (input.passengers !== input.adults + input.children + input.infants) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['passengers'],
+      message: 'إجمالي المسافرين لا يطابق تفاصيل الركاب',
+    });
+  }
 
   if (!isValidDateOnly(input.pickupDate)) {
     ctx.addIssue({
@@ -106,16 +122,20 @@ export const bookingsRouter = router({
 
   updateStep: publicProcedure
     .input(z.object({
-      id: z.number(),
+      id: z.number().int().positive(),
       accessToken: z.string().length(48),
-      selectedTrip: z.string().optional(),
-      selectedFare: z.string().optional(),
-      selectedSeats: z.string().optional(),
-      passengerName: z.string().optional(),
-      passengerPhone: z.string().optional(),
-      paymentMethod: z.string().optional(),
+      selectedTrip: z.string().max(10_000).optional(),
+      selectedFare: z.string().max(80).refine(
+        value => ['economy', 'business', 'vip'].includes(value.toLowerCase()),
+        { message: 'فئة الرحلة غير صالحة' },
+      ).optional(),
+      selectedSeats: z.string().max(2_000).optional(),
+      passengerName: z.string().max(1_000).optional(),
+      passengerPhone: z.string().max(100).optional(),
+      passengerDocument: z.string().max(1_000).optional(),
+      paymentMethod: z.string().max(120).optional(),
       paymentStatus: z.literal('pending').optional(),
-      totalAmount: z.number().optional(),
+      totalAmount: z.number().finite().nonnegative().max(1_000_000).optional(),
     }))
     .mutation(async ({ input }) => {
       const { id, accessToken, ...data } = input;
@@ -129,6 +149,7 @@ export const bookingsRouter = router({
       if (data.selectedSeats !== undefined) update.selectedSeats = data.selectedSeats;
       if (data.passengerName !== undefined) update.passengerName = data.passengerName;
       if (data.passengerPhone !== undefined) update.passengerPhone = data.passengerPhone;
+      if (data.passengerDocument !== undefined) update.passengerDocument = data.passengerDocument;
       if (data.paymentMethod !== undefined) update.paymentMethod = data.paymentMethod;
       if (data.paymentStatus !== undefined) update.paymentStatus = data.paymentStatus;
       if (data.totalAmount !== undefined) {
@@ -154,6 +175,7 @@ export const bookingsRouter = router({
         update.totalAmount = current.tripType === 'round-trip' ? Math.floor(withVat * 0.85) : withVat;
       }
       const booking = await db.booking.update({ where: { id }, data: update });
+      emitBookingUpdated(booking as unknown as Record<string, unknown>);
       return booking;
     }),
 
@@ -162,7 +184,7 @@ export const bookingsRouter = router({
   }),
 
   get: publicProcedure
-    .input(z.object({ id: z.number(), accessToken: z.string().length(48) }))
+    .input(z.object({ id: z.number().int().positive(), accessToken: z.string().length(48) }))
     .query(async ({ input }) => {
       const booking = db.booking.findUnique({ where: { id: input.id } });
       if (!booking || !booking.accessToken || booking.accessToken !== input.accessToken) {
@@ -172,7 +194,7 @@ export const bookingsRouter = router({
     }),
 
   delete: adminProcedure
-    .input(z.object({ id: z.number() }))
+    .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
       await db.booking.delete({ where: { id: input.id } });
       return { success: true };

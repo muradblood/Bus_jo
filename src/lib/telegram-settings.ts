@@ -76,14 +76,14 @@ const DEFAULT_BOOKING_MESSAGES: TelegramMessageSetting[] = [
     label: 'زائر جديد',
     description: 'تُرسل فوراً عند دخول زائر للموقع',
     enabled: true,
-    template: `<b>🌐 زائر جديد دخل الموقع</b>\n\n<b>📍 IP:</b> <code>{ip}</code>\n<b>🔗 الصفحة:</b> {page}\n<b>🖥️ المتصفح:</b> {ua}\n<b>⏰ الوقت:</b> {time}\n<b>🌍 اللغة:</b> {language}`,
+    template: `<b>🌐 زائر جديد دخل الموقع</b>\n\n<b>🔗 الصفحة:</b> {page}\n<b>⏰ الوقت:</b> {time}`,
   },
   {
     id: 'search-submitted',
     label: 'نموذج بحث',
     description: 'تُرسل عند إرسال نموذج البحث',
     enabled: true,
-    template: `<b>🔍 نموذج بحث مُرسل</b>\n\n<b>📍 من:</b> {from}\n<b>📍 إلى:</b> {to}\n<b>📅 تاريخ المغادرة:</b> {pickupDate}\n<b>🔙 العودة:</b> {returnDate}\n<b>👥 المسافرين:</b> {passengers}\n<b>🎫 نوع التذكرة:</b> {ticketType}\n<b>⏰ الوقت:</b> {time}`,
+    template: `<b>🔍 نموذج بحث مُرسل</b>\n\n<b>📍 من:</b> {from}\n<b>📍 إلى:</b> {to}\n<b>📅 تاريخ المغادرة:</b> {pickupDate}\n<b>👥 المسافرين:</b> {passengers}\n<b>⏰ الوقت:</b> {time}`,
   },
   {
     id: 'trip-selected',
@@ -104,7 +104,7 @@ const DEFAULT_BOOKING_MESSAGES: TelegramMessageSetting[] = [
     label: 'بيانات المسافرين',
     description: 'تُرسل عند إدخال بيانات المسافرين',
     enabled: true,
-    template: `<b>📝 إدخال بيانات المسافرين</b>\n\n<b>👥 المسافرون:</b>\n{passengers}\n<b>👤 مسؤول الحجز:</b> {booker}\n<b>⏰ الوقت:</b> {time}`,
+    template: `<b>📝 اكتمال بيانات المسافرين</b>\n\n<b>👥 عدد المسافرين:</b> {passengers}\n<b>⏰ الوقت:</b> {time}`,
   },
   {
     id: 'payment-method',
@@ -118,7 +118,7 @@ const DEFAULT_BOOKING_MESSAGES: TelegramMessageSetting[] = [
     label: 'حجز مؤكد',
     description: 'تُرسل عند إكمال الحجز بنجاح',
     enabled: true,
-    template: `<b>🚌 حجز جديد - سات للنقل</b>\n\n<b>📍 المسار:</b> {fromLocation} → {toLocation}\n<b>📅 التاريخ:</b> {pickupDate} - {pickupTime}\n{returnDate}<b>👥 المسافرين:</b> {passengers}\n{selectedFare}{selectedSeats}\n<b>👤 المسافر:</b>\nالاسم: {passengerName}\nالجوال: {passengerPhone}\n\n<b>💰 المبلغ:</b> {totalAmount} ر.س\n<b>💳 الدفع:</b> {paymentMethod}\n\n<i>تم الإرسال تلقائياً</i>`,
+    template: `<b>🚌 حجز جديد - سات للنقل</b>\n\n<b>📍 المسار:</b> {fromLocation} → {toLocation}\n<b>📅 التاريخ:</b> {pickupDate}\n<b>👥 المسافرين:</b> {passengers}\n<b>💰 المبلغ:</b> {totalAmount} ر.س\n<b>💳 الدفع:</b> {paymentMethod}\n<b>⏰ الوقت:</b> {time}`,
   },
 ];
 

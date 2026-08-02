@@ -31,6 +31,7 @@ export interface Booking {
   infants: number;
   passengerName?: string;
   passengerPhone?: string;
+  passengerDocument?: string;
   fareClass?: string;
   selectedTrip?: string;
   selectedSeats?: string;

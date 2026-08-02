@@ -150,6 +150,8 @@ function bookingTemplateValues(input: BookingEvent): Record<string, string> {
     paymentMethod: escapeHtml(input.paymentMethod),
     amount: escapeHtml(input.amount),
     totalAmount: escapeHtml(input.amount),
+    page: escapeHtml(input.page),
+    time: escapeHtml(new Date().toLocaleString('ar-SA')),
   };
 }
 

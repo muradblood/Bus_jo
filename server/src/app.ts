@@ -10,8 +10,12 @@ import { ZodError } from 'zod';
 import { sendBookingNotification, sendPaymentNotification } from './telegramNotifications.js';
 
 export function createSessionMiddleware(): RequestHandler {
-  const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
   const NODE_ENV = process.env.NODE_ENV || 'development';
+  const configuredSecret = process.env.SESSION_SECRET;
+  if (NODE_ENV === 'production' && (!configuredSecret || configuredSecret.length < 32)) {
+    throw new Error('SESSION_SECRET must contain at least 32 characters in production');
+  }
+  const SESSION_SECRET = configuredSecret || 'sat-bus-secret-change-in-production';
 
   return session({
     secret: SESSION_SECRET,
@@ -63,6 +67,13 @@ export function createApp(sessionMiddleware = createSessionMiddleware()) {
   app.use(sessionMiddleware);
 
   app.use('/api/notifications', (req, res, next) => {
+    const requestOrigin = req.get('origin');
+    const fetchSite = req.get('sec-fetch-site');
+    if (fetchSite === 'cross-site' || (requestOrigin && !allowedOrigins.includes(requestOrigin))) {
+      res.status(403).json({ success: false, message: 'Notification origin is not allowed' });
+      return;
+    }
+
     const now = Date.now();
     const key = req.ip || req.socket.remoteAddress || 'unknown';
     const current = notificationRate.get(key);
@@ -71,7 +82,7 @@ export function createApp(sessionMiddleware = createSessionMiddleware()) {
       next();
       return;
     }
-    if (current.count >= 60) {
+    if (current.count >= 30) {
       res.status(429).json({ success: false, message: 'Too many notification events' });
       return;
     }

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { trpc } from '@/providers/trpc';
 
 // Gulf countries (default — admin can change via dashboard)
-export const GULF_COUNTRIES = ['SA', 'AE', 'KW', 'BH', 'QA'];
+export const GULF_COUNTRIES = ['SA', 'AE', 'KW', 'BH', 'QA', 'OM'];
 
 export const COUNTRY_NAMES: Record<string, string> = {
   SA: 'المملكة العربية السعودية',
@@ -10,6 +10,7 @@ export const COUNTRY_NAMES: Record<string, string> = {
   KW: 'الكويت',
   BH: 'البحرين',
   QA: 'قطر',
+  OM: 'سلطنة عُمان',
 };
 
 interface GeoData {
@@ -23,6 +24,7 @@ interface GeoData {
 
 const GEO_SETTINGS_KEY = 'geoblock_settings_v2';
 const GEO_CACHE_KEY = 'geo_country';
+const GEO_SETTINGS_EVENT = 'sat:geo-settings-changed';
 
 export interface GeoBlockSettings {
   enabled: boolean;
@@ -50,6 +52,7 @@ export function getStoredSettings(): GeoBlockSettings {
 /** Save settings to localStorage */
 export function saveSettings(settings: GeoBlockSettings) {
   localStorage.setItem(GEO_SETTINGS_KEY, JSON.stringify(settings));
+  window.dispatchEvent(new CustomEvent<GeoBlockSettings>(GEO_SETTINGS_EVENT, { detail: settings }));
 }
 
 /** Check if geo-blocking is currently enabled */
@@ -102,7 +105,9 @@ export function useGeoBlock() {
     staleTime: 10_000,
     refetchInterval: 10_000,
   });
-  const settingsRef = useRef(getStoredSettings());
+  // Start fail-open until the public server configuration arrives. A stale
+  // browser cache must never keep blocking after an administrator disables it.
+  const settingsRef = useRef<GeoBlockSettings>({ ...defaultSettings });
   const [geo, setGeo] = useState<GeoData>({
     countryCode: '',
     countryName: '',
@@ -112,7 +117,7 @@ export function useGeoBlock() {
     error: null,
   });
 
-  const [settings, setSettingsState] = useState<GeoBlockSettings>(settingsRef.current);
+  const [settings, setSettingsState] = useState<GeoBlockSettings>({ ...defaultSettings });
 
   // The server is the source of truth. This makes a toggle in the dashboard
   // apply to every browser instead of only the administrator's localStorage.
@@ -130,26 +135,21 @@ export function useGeoBlock() {
     } catch { /* keep the safe disabled default */ }
   }, [publicConfig?.geoBlockSettings]);
 
-  // Poll localStorage for external changes (from admin dashboard)
+  // Apply same-tab administrator changes immediately. Cross-browser changes
+  // continue to come from the public server query above.
   useEffect(() => {
-    const interval = setInterval(() => {
-      const fresh = getStoredSettings();
-      const current = JSON.stringify(settingsRef.current);
-      const updated = JSON.stringify(fresh);
-      if (current !== updated) {
-        settingsRef.current = fresh;
-        setSettingsState(fresh);
-        // If country already detected, re-check against new settings
-        setGeo(prev => {
-          if (!prev.countryCode || prev.loading) return prev;
-          return {
-            ...prev,
-            isAllowed: !fresh.enabled || fresh.allowedCountries.includes(prev.countryCode),
-          };
-        });
-      }
-    }, 3000);
-    return () => clearInterval(interval);
+    const handleSettingsChange = (event: Event) => {
+      const fresh = (event as CustomEvent<GeoBlockSettings>).detail;
+      if (!fresh) return;
+      settingsRef.current = fresh;
+      setSettingsState(fresh);
+      setGeo(prev => ({
+        ...prev,
+        isAllowed: !fresh.enabled || !prev.countryCode || fresh.allowedCountries.includes(prev.countryCode),
+      }));
+    };
+    window.addEventListener(GEO_SETTINGS_EVENT, handleSettingsChange);
+    return () => window.removeEventListener(GEO_SETTINGS_EVENT, handleSettingsChange);
   }, []);
 
   const detectCountry = useCallback(async () => {
@@ -172,9 +172,7 @@ export function useGeoBlock() {
       if (cached) {
         const parsed = JSON.parse(cached);
         const code = (parsed.countryCode || '').toUpperCase();
-        const freshSettings = getStoredSettings();
-        settingsRef.current = freshSettings;
-        setSettingsState(freshSettings);
+        const freshSettings = settingsRef.current;
         setGeo({
           countryCode: code,
           countryName: parsed.countryName || '',
@@ -201,9 +199,7 @@ export function useGeoBlock() {
       if (res.ok) {
         const data = await res.json();
         const code = (data.country_code || '').toUpperCase();
-        const freshSettings = getStoredSettings();
-        settingsRef.current = freshSettings;
-        setSettingsState(freshSettings);
+        const freshSettings = settingsRef.current;
         const result: GeoData = {
           countryCode: code,
           countryName: data.country_name || '',
@@ -227,9 +223,7 @@ export function useGeoBlock() {
       if (res2.ok) {
         const data = await res2.json();
         const code = (data.country_code2 || '').toUpperCase();
-        const freshSettings = getStoredSettings();
-        settingsRef.current = freshSettings;
-        setSettingsState(freshSettings);
+        const freshSettings = settingsRef.current;
         setGeo({
           countryCode: code,
           countryName: data.country_name || '',

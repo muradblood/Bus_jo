@@ -63,7 +63,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onSearch }) => {
     <section
       id="hero"
       ref={heroRef}
-      className="relative overflow-hidden bg-surface-alt"
+      className="sat-section-hero relative overflow-hidden bg-surface-alt"
     >
       {/* ═══ HERO IMAGE BANNER (Standalone - separated from booking panel) ═══ */}
       <div ref={imgRef} className="relative w-full h-[50vh] md:h-[55vh] lg:h-[60vh] overflow-hidden">
@@ -86,7 +86,7 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onSearch }) => {
       </div>
 
       {/* ═══ STATS + BOOKING PANEL (Separated from hero image) ═══ */}
-      <div className="relative z-20 py-8 md:py-12">
+      <div className="sat-section-booking relative z-20 py-8 md:py-12">
         <div className="max-w-content mx-auto container-padding">
           <div ref={panelRef} className="flex justify-center">
             <div className="w-full max-w-[600px]">

@@ -83,3 +83,8 @@ export function emitVisitorUpdate(visitor: Record<string, unknown>): void {
 export function emitBookingStatusChanged(data: { id: number; status: string }): void {
   _io?.to('admin').emit('booking_status_changed', data);
 }
+
+/** Emit a booking data update to all admin sockets. */
+export function emitBookingUpdated(booking: Record<string, unknown>): void {
+  _io?.to('admin').emit('booking_updated', booking);
+}

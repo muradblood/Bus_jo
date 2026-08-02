@@ -58,7 +58,7 @@ export const citiesRouter = router({
   }),
 
   search: publicProcedure
-    .input(z.object({ query: z.string() }))
+    .input(z.object({ query: z.string().max(120) }))
     .query(async ({ input }) => {
       const q = input.query.trim().toLowerCase();
       return listCities().filter(c =>
@@ -72,7 +72,7 @@ export const citiesRouter = router({
     }),
 
   autoComplete: publicProcedure
-    .input(z.object({ query: z.string() }))
+    .input(z.object({ query: z.string().max(120) }))
     .query(async ({ input }) => {
       const cities = listCities();
       if (!input.query.trim()) return cities.slice(0, 10);
@@ -87,8 +87,11 @@ export const citiesRouter = router({
       name: z.string().trim().min(2).max(120),
       region: z.string().trim().max(120).default(''),
       country: z.string().trim().max(120).default('السعودية'),
-      lat: z.number().finite().min(-90).max(90).default(0),
-      lng: z.number().finite().min(-180).max(180).default(0),
+      lat: z.number().finite().min(-90).max(90),
+      lng: z.number().finite().min(-180).max(180),
+    }).refine(input => input.lat !== 0 || input.lng !== 0, {
+      message: 'يجب إدخال إحداثيات فعلية للمدينة',
+      path: ['lat'],
     }))
     .mutation(async ({ input }) => {
       ensureCitiesSeeded();

@@ -13,9 +13,8 @@ export interface Context {
 
 export function createContext({ req, res }: { req: Request; res: Response }): Context {
   const session = (req as Request & { session?: { adminId?: number } }).session ?? null;
-  const clientIp =
-    (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ||
-    req.socket.remoteAddress ||
-    'unknown';
+  // Express resolves the trusted proxy chain according to app.set('trust proxy').
+  // Reading x-forwarded-for directly would let clients spoof the address.
+  const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
   return { req, res, session, clientIp };
 }

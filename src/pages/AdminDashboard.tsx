@@ -238,11 +238,11 @@ function BanksTab() {
   const [newBank, setNewBank] = useState<StoredBank>({
     key: '', name: '', nameEn: '', color: '#1A3A5C', colorDark: '#0F2440',
     colorLight: '#EDF2F7', otpMessage: 'أدخل رمز التحقق المرسل إلى رقم جوالك',
-    supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true,
+    supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true, type: 'bank',
   });
 
   const bankData = (bank: StoredBank) => ({
-    type: bank.type,
+    type: bank.type ?? 'bank',
     name: bank.name,
     nameEn: bank.nameEn,
     color: bank.color,
@@ -295,7 +295,7 @@ function BanksTab() {
           setNewBank({
             key: '', name: '', nameEn: '', color: '#1A3A5C', colorDark: '#0F2440',
             colorLight: '#EDF2F7', otpMessage: 'أدخل رمز التحقق المرسل إلى رقم جوالك',
-            supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true,
+            supportPhone: '', website: '', bins: '', logoUrl: '', enabled: true, type: 'bank',
           });
         },
         onError: error => alert(error.message || 'تعذر إضافة البنك أو المحفظة'),
@@ -370,6 +370,7 @@ function BanksTab() {
           <h3 className="font-bold text-charcoal mb-4 flex items-center gap-2"><Landmark className="w-5 h-5 text-brand-gold" /> إضافة بنك أو محفظة جديدة</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div><label className="block text-xs font-bold text-charcoal mb-1">المعرف (key)</label><input value={newBank.key} onChange={e => setNewBank(p => ({ ...p, key: e.target.value }))} placeholder="alrajhi" className="w-full h-10 px-3 border border-[#E5E0D5] rounded-xl text-sm focus:outline-none focus:border-brand-gold bg-[#FCFBF9]" /></div>
+            <div><label className="block text-xs font-bold text-charcoal mb-1">النوع</label><select value={newBank.type ?? 'bank'} onChange={e => setNewBank(p => ({ ...p, type: e.target.value as 'bank' | 'wallet' }))} className="w-full h-10 px-3 border border-[#E5E0D5] rounded-xl text-sm focus:outline-none focus:border-brand-gold bg-[#FCFBF9]"><option value="bank">بنك</option><option value="wallet">محفظة رقمية</option></select></div>
             <div><label className="block text-xs font-bold text-charcoal mb-1">اسم البنك</label><input value={newBank.name} onChange={e => setNewBank(p => ({ ...p, name: e.target.value }))} placeholder="مصرف الراجحي" className="w-full h-10 px-3 border border-[#E5E0D5] rounded-xl text-sm focus:outline-none focus:border-brand-gold bg-[#FCFBF9]" /></div>
             <div><label className="block text-xs font-bold text-charcoal mb-1">الاسم الإنجليزي</label><input value={newBank.nameEn} onChange={e => setNewBank(p => ({ ...p, nameEn: e.target.value }))} placeholder="AL RAJHI BANK" className="w-full h-10 px-3 border border-[#E5E0D5] rounded-xl text-sm focus:outline-none focus:border-brand-gold bg-[#FCFBF9]" /></div>
             <div><label className="block text-xs font-bold text-charcoal mb-1">اللون الأساسي</label><div className="flex gap-2"><input type="color" value={newBank.color} onChange={e => setNewBank(p => ({ ...p, color: e.target.value }))} className="w-12 h-10 border border-[#E5E0D5] rounded-xl cursor-pointer" /><input value={newBank.color} onChange={e => setNewBank(p => ({ ...p, color: e.target.value }))} className="flex-1 h-10 px-3 border border-[#E5E0D5] rounded-xl text-sm font-mono bg-[#FCFBF9]" dir="ltr" /></div></div>
@@ -445,6 +446,7 @@ function BanksTab() {
                 <div className="space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div><label className="block text-[10px] font-bold text-[#8A7E6B] mb-1">الاسم</label><input value={editForm.name} onChange={e => setEditForm(p => p ? { ...p, name: e.target.value } : null)} className="w-full h-9 px-3 border border-[#E5E0D5] rounded-lg text-sm focus:outline-none focus:border-brand-gold bg-[#FCFBF9]" /></div>
+                    <div><label className="block text-[10px] font-bold text-[#8A7E6B] mb-1">النوع</label><select value={editForm.type ?? 'bank'} onChange={e => setEditForm(p => p ? { ...p, type: e.target.value as 'bank' | 'wallet' } : null)} className="w-full h-9 px-3 border border-[#E5E0D5] rounded-lg text-sm focus:outline-none focus:border-brand-gold bg-[#FCFBF9]"><option value="bank">بنك</option><option value="wallet">محفظة رقمية</option></select></div>
                     <div><label className="block text-[10px] font-bold text-[#8A7E6B] mb-1">الاسم الإنجليزي</label><input value={editForm.nameEn} onChange={e => setEditForm(p => p ? { ...p, nameEn: e.target.value } : null)} className="w-full h-9 px-3 border border-[#E5E0D5] rounded-lg text-sm focus:outline-none focus:border-brand-gold bg-[#FCFBF9]" /></div>
                     <div><label className="block text-[10px] font-bold text-[#8A7E6B] mb-1">اللون الأساسي</label><div className="flex gap-2"><input type="color" value={editForm.color} onChange={e => setEditForm(p => p ? { ...p, color: e.target.value } : null)} className="w-10 h-9 rounded-lg cursor-pointer border border-[#E5E0D5]" /><input value={editForm.color} onChange={e => setEditForm(p => p ? { ...p, color: e.target.value } : null)} className="flex-1 h-9 px-2 border border-[#E5E0D5] rounded-lg text-xs font-mono bg-[#FCFBF9]" dir="ltr" /></div></div>
                     <div><label className="block text-[10px] font-bold text-[#8A7E6B] mb-1">اللون الداكن</label><div className="flex gap-2"><input type="color" value={editForm.colorDark} onChange={e => setEditForm(p => p ? { ...p, colorDark: e.target.value } : null)} className="w-10 h-9 rounded-lg cursor-pointer border border-[#E5E0D5]" /><input value={editForm.colorDark} onChange={e => setEditForm(p => p ? { ...p, colorDark: e.target.value } : null)} className="flex-1 h-9 px-2 border border-[#E5E0D5] rounded-lg text-xs font-mono bg-[#FCFBF9]" dir="ltr" /></div></div>
@@ -478,6 +480,7 @@ function BanksTab() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className={`font-bold text-sm ${bank.enabled ? 'text-charcoal' : 'text-gray-400 line-through'}`}>{bank.name}</span>
+                        <span className="text-[9px] bg-[#F5F3EF] text-[#8A7E6B] px-1.5 py-0.5 rounded-full">{bank.type === 'wallet' ? 'محفظة' : 'بنك'}</span>
                         <span className="text-[10px] text-[#B5AFA3]">{bank.nameEn}</span>
                       </div>
                       <div className="flex items-center gap-2 mt-1">
@@ -554,9 +557,11 @@ function DashboardTab() {
       utils.admin.bookings.invalidate();
     };
     socket.on('new_booking', onNewBooking);
+    socket.on('booking_updated', onNewBooking);
     socket.on('booking_status_changed', onNewBooking);
     return () => {
       socket.off('new_booking', onNewBooking);
+      socket.off('booking_updated', onNewBooking);
       socket.off('booking_status_changed', onNewBooking);
     };
   }, [utils]);
@@ -702,9 +707,11 @@ function BookingsTab() {
   useEffect(() => {
     const refresh = () => utils.admin.bookings.invalidate();
     socket.on('new_booking', refresh);
+    socket.on('booking_updated', refresh);
     socket.on('booking_status_changed', refresh);
     return () => {
       socket.off('new_booking', refresh);
+      socket.off('booking_updated', refresh);
       socket.off('booking_status_changed', refresh);
     };
   }, [utils]);
@@ -719,7 +726,8 @@ function BookingsTab() {
     if (search) {
       const q = search.toLowerCase();
       const phone = b.passengerPhone ?? '';
-      if (!(b.fromLocation + b.toLocation + (b.passengerName || '') + phone).toLowerCase().includes(q)) return false;
+      const document = b.passengerDocument ?? '';
+      if (!(b.fromLocation + b.toLocation + (b.passengerName || '') + phone + document).toLowerCase().includes(q)) return false;
     }
     if (statusFilter !== 'all' && b.status !== statusFilter) return false;
     return true;
@@ -740,10 +748,25 @@ function BookingsTab() {
   };
 
   const exportCSV = () => {
-    const headers = ['ID,الرحلة,التاريخ,المسافر,الهاتف,المبلغ,الحالة,تاريخ الإنشاء'];
+    const escapeCsv = (value: unknown) => {
+      let text = String(value ?? '');
+      if (/^[=+\-@]/.test(text)) text = `'${text}`;
+      return `"${text.replaceAll('"', '""')}"`;
+    };
+    const headers = [['ID', 'الرحلة', 'التاريخ', 'المسافر', 'الهاتف', 'رقم الوثيقة', 'المبلغ', 'الحالة', 'تاريخ الإنشاء'].map(escapeCsv).join(',')];
     const rows = bookingsList.map(b => {
       const phone = b.passengerPhone ?? '';
-      return `${b.id},${b.fromLocation}→${b.toLocation},${b.pickupDate},${b.passengerName || ''},${phone},${b.totalAmount},${b.status},${typeof b.createdAt === 'string' ? b.createdAt : (b.createdAt as Date).toISOString()}`;
+      return [
+        b.id,
+        `${b.fromLocation}→${b.toLocation}`,
+        b.pickupDate,
+        b.passengerName || '',
+        phone,
+        b.passengerDocument || '',
+        b.totalAmount,
+        b.status,
+        typeof b.createdAt === 'string' ? b.createdAt : (b.createdAt as Date).toISOString(),
+      ].map(escapeCsv).join(',');
     });
     const csv = [...headers, ...rows].join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -822,6 +845,7 @@ function BookingsTab() {
                 <th className="px-4 py-3 font-bold">التاريخ</th>
                 <th className="px-4 py-3 font-bold">المسافر</th>
                 <th className="px-4 py-3 font-bold">الهاتف</th>
+                <th className="px-4 py-3 font-bold">رقم الوثيقة</th>
                 <th className="px-4 py-3 font-bold">المبلغ</th>
                 <th className="px-4 py-3 font-bold">الحالة</th>
                 <th className="px-4 py-3 font-bold">إجراء</th>
@@ -829,7 +853,7 @@ function BookingsTab() {
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-[#8A7E6B]">
+                <tr><td colSpan={9} className="px-4 py-8 text-center text-[#8A7E6B]">
                   <CalendarCheck className="w-10 h-10 mx-auto mb-2 opacity-30" />
                   <p className="font-bold text-sm">لا توجد حجوزات</p>
                   <p className="text-xs mt-1">ستظهر هنا الحجوزات الجديدة من الواجهة الأمامية</p>
@@ -849,6 +873,7 @@ function BookingsTab() {
                     <td className="px-4 py-3 text-[#8A7E6B] text-xs">{b.pickupDate}</td>
                     <td className="px-4 py-3 text-[#8A7E6B]">{b.passengerName}</td>
                     <td className="px-4 py-3 text-[#8A7E6B] font-mono text-xs" dir="ltr">{phone}</td>
+                    <td className="px-4 py-3 text-[#8A7E6B] font-mono text-xs" dir="ltr">{b.passengerDocument || '—'}</td>
                     <td className="px-4 py-3 font-extrabold text-brand-gold">{b.totalAmount} ر.س</td>
                     <td className="px-4 py-3"><StatusBadge status={b.status} /></td>
                     <td className="px-4 py-3">
@@ -882,14 +907,27 @@ function CitiesTab() {
   const { data: cities = [] } = trpc.cities.list.useQuery();
   const createCity = trpc.cities.create.useMutation({ onSuccess: () => utils.cities.list.invalidate() });
   const deleteCity = trpc.cities.delete.useMutation({ onSuccess: () => utils.cities.list.invalidate() });
-  const [newCity, setNewCity] = useState('');
+  const [newCity, setNewCity] = useState({
+    name: '', region: '', country: 'السعودية', lat: '', lng: '',
+  });
   const [search, setSearch] = useState('');
 
   const handleAdd = async () => {
-    if (!newCity.trim()) return;
+    const lat = Number(newCity.lat);
+    const lng = Number(newCity.lng);
+    if (!newCity.name.trim() || newCity.lat.trim() === '' || newCity.lng.trim() === '' || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      alert('يرجى إدخال اسم المدينة وخط العرض وخط الطول بصورة صحيحة');
+      return;
+    }
     try {
-      await createCity.mutateAsync({ name: newCity.trim(), region: '', country: 'السعودية', lat: 0, lng: 0 });
-      setNewCity('');
+      await createCity.mutateAsync({
+        name: newCity.name.trim(),
+        region: newCity.region.trim(),
+        country: newCity.country.trim() || 'السعودية',
+        lat,
+        lng,
+      });
+      setNewCity({ name: '', region: '', country: 'السعودية', lat: '', lng: '' });
     } catch (error) {
       alert(error instanceof Error ? error.message : 'تعذر إضافة المدينة');
     }
@@ -911,13 +949,23 @@ function CitiesTab() {
     <div className="space-y-4">
       <div className="bg-white rounded-2xl shadow-card border border-[#E5E0D5] p-5">
         <h3 className="font-bold text-charcoal mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-brand-gold" /> إضافة مدينة جديدة</h3>
-        <div className="flex gap-3">
-          <input value={newCity} onChange={e => setNewCity(e.target.value)} placeholder="اسم المدينة - المنطقة"
-            className="flex-1 h-12 px-4 border border-[#E5E0D5] rounded-xl text-right focus:outline-none focus:border-brand-gold text-sm bg-[#FCFBF9]"
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <input value={newCity.name} onChange={e => setNewCity(p => ({ ...p, name: e.target.value }))} placeholder="اسم المدينة"
+            className="h-12 px-4 border border-[#E5E0D5] rounded-xl text-right focus:outline-none focus:border-brand-gold text-sm bg-[#FCFBF9]" />
+          <input value={newCity.region} onChange={e => setNewCity(p => ({ ...p, region: e.target.value }))} placeholder="المنطقة"
+            className="h-12 px-4 border border-[#E5E0D5] rounded-xl text-right focus:outline-none focus:border-brand-gold text-sm bg-[#FCFBF9]" />
+          <input value={newCity.country} onChange={e => setNewCity(p => ({ ...p, country: e.target.value }))} placeholder="الدولة"
+            className="h-12 px-4 border border-[#E5E0D5] rounded-xl text-right focus:outline-none focus:border-brand-gold text-sm bg-[#FCFBF9]" />
+          <input value={newCity.lat} onChange={e => setNewCity(p => ({ ...p, lat: e.target.value }))} placeholder="خط العرض 24.7136" inputMode="decimal" dir="ltr"
+            className="h-12 px-4 border border-[#E5E0D5] rounded-xl text-left focus:outline-none focus:border-brand-gold text-sm bg-[#FCFBF9]" />
+          <input value={newCity.lng} onChange={e => setNewCity(p => ({ ...p, lng: e.target.value }))} placeholder="خط الطول 46.6753" inputMode="decimal" dir="ltr"
+            className="h-12 px-4 border border-[#E5E0D5] rounded-xl text-left focus:outline-none focus:border-brand-gold text-sm bg-[#FCFBF9]"
             onKeyDown={e => e.key === 'Enter' && handleAdd()} />
+          <div className="sm:col-span-2 lg:col-span-5 flex justify-end">
           <button onClick={handleAdd} className="h-12 px-6 gold-gradient text-white font-bold rounded-xl hover:shadow-lg transition-all flex items-center gap-2 shadow-md">
             <Plus className="w-4 h-4" /> إضافة
           </button>
+          </div>
         </div>
       </div>
 
@@ -937,7 +985,9 @@ function CitiesTab() {
                 <div className="w-8 h-8 rounded-lg bg-brand-gold/10 flex items-center justify-center"><MapPin className="w-4 h-4 text-brand-gold" /></div>
                 <div>
                   <span className="text-charcoal font-bold text-sm">{city.name}</span>
-                  {city.country && <span className="block text-[10px] text-[#8A7E6B]">{city.country}</span>}
+                  <span className="block text-[10px] text-[#8A7E6B]">
+                    {[city.region, city.country].filter(Boolean).join(' — ')} · {city.lat.toFixed(4)}, {city.lng.toFixed(4)}
+                  </span>
                 </div>
               </div>
               <button onClick={() => handleDelete(city.id)} className="p-2 text-red-400 hover:bg-red-50 rounded-lg transition-colors">
@@ -2051,6 +2101,7 @@ function PasswordChangeSection() {
 const DESIGN_STORAGE_KEY = 'sat_design_settings_v1';
 
 interface DesignSettings {
+  active: boolean;
   colors: {
     primary: string;
     primaryDark: string;
@@ -2077,6 +2128,7 @@ interface DesignSettings {
 
 function getDefaultDesign(): DesignSettings {
   return {
+    active: false,
     colors: {
       primary: '#C4A94D',
       primaryDark: '#B8983E',
@@ -2114,6 +2166,8 @@ function saveDesign(s: DesignSettings) {
   localStorage.setItem(DESIGN_STORAGE_KEY, JSON.stringify(s));
   // Apply CSS variables
   const root = document.documentElement;
+  if (s.active) root.dataset.satTheme = 'custom';
+  else delete root.dataset.satTheme;
   root.style.setProperty('--sat-primary', s.colors.primary);
   root.style.setProperty('--sat-primary-dark', s.colors.primaryDark);
   root.style.setProperty('--sat-bg', s.colors.background);
@@ -2159,7 +2213,7 @@ function DesignTab() {
 
   const handleColorChange = (key: keyof DesignSettings['colors'], value: string) => {
     setSettings(prev => {
-      const updated = { ...prev, colors: { ...prev.colors, [key]: value } };
+      const updated = { ...prev, active: true, colors: { ...prev.colors, [key]: value } };
       saveDesign(updated);
       return updated;
     });
@@ -2167,7 +2221,7 @@ function DesignTab() {
 
   const handleCardToggle = (key: keyof DesignSettings['cards']) => {
     setSettings(prev => {
-      const updated = { ...prev, cards: { ...prev.cards, [key]: { ...prev.cards[key], enabled: !prev.cards[key].enabled } } };
+      const updated = { ...prev, active: true, cards: { ...prev.cards, [key]: { ...prev.cards[key], enabled: !prev.cards[key].enabled } } };
       saveDesign(updated);
       return updated;
     });
@@ -2175,7 +2229,7 @@ function DesignTab() {
 
   const handleCardColor = (key: keyof DesignSettings['cards'], field: 'bgColor' | 'textColor', value: string) => {
     setSettings(prev => {
-      const updated = { ...prev, cards: { ...prev.cards, [key]: { ...prev.cards[key], [field]: value } } };
+      const updated = { ...prev, active: true, cards: { ...prev.cards, [key]: { ...prev.cards[key], [field]: value } } };
       saveDesign(updated);
       return updated;
     });
@@ -2509,6 +2563,7 @@ function TelegramTab() {
   const bookingVars = [
     '{fromLocation}', '{toLocation}', '{pickupDate}', '{passengers}',
     '{tripNumber}', '{fareClass}', '{totalAmount}', '{paymentMethod}', '{selectedSeats}',
+    '{page}', '{time}',
   ];
 
   const currentVars = activeBot === 'payment' ? paymentVars : bookingVars;

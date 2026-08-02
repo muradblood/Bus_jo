@@ -15,7 +15,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
   paymentEnabled: 'true',
   geoBlockSettings: JSON.stringify({
     enabled: false,
-    allowedCountries: ['SA', 'AE', 'KW', 'BH', 'QA'],
+    allowedCountries: ['SA', 'AE', 'KW', 'BH', 'QA', 'OM'],
     showMessage: 'عذراً، خدمة الحجز متاحة فقط في دول الخليج العربي حالياً. يمكنك تصفح خدماتنا ومعرفة المزيد عن رحلاتنا.',
     redirectToServices: true,
   }),
@@ -27,6 +27,7 @@ const DEFAULT_SETTINGS: Record<string, string> = {
     overrides: [],
   }),
   designSettings: JSON.stringify({
+    active: false,
     colors: {
       primary: '#C4A94D', primaryDark: '#B8983E', background: '#F0EDE4',
       cardBg: '#FFFFFF', textMain: '#1A1A1A', textMuted: '#8A7E6B',
@@ -68,7 +69,7 @@ export const settingsRouter = router({
   }),
 
   get: adminProcedure
-    .input(z.object({ key: z.string() }))
+    .input(z.object({ key: z.string().trim().min(1).max(120) }))
     .query(async ({ input }) => {
       const row = await db.setting.findUnique({ where: { key: input.key } });
       if (row) return { key: row.key, value: row.value };
@@ -78,7 +79,10 @@ export const settingsRouter = router({
     }),
 
   upsert: adminProcedure
-    .input(z.object({ key: z.string(), value: z.string() }))
+    .input(z.object({
+      key: z.string().trim().min(1).max(120),
+      value: z.string().max(1_000_000),
+    }))
     .mutation(async ({ input }) => {
       return db.setting.upsert({
         where: { key: input.key },
@@ -89,7 +93,10 @@ export const settingsRouter = router({
 
   upsertMany: adminProcedure
     .input(z.object({
-      entries: z.array(z.object({ key: z.string().min(1).max(120), value: z.string() })).min(1).max(50),
+      entries: z.array(z.object({
+        key: z.string().trim().min(1).max(120),
+        value: z.string().max(1_000_000),
+      })).min(1).max(50),
     }))
     .mutation(({ input }) => {
       return db.setting.upsertMany({ uniqueKey: 'key', data: input.entries });

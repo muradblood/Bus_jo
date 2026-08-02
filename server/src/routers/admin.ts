@@ -73,7 +73,10 @@ export const adminRouter = router({
     }),
 
   updateBookingStatus: adminProcedure
-    .input(z.object({ id: z.number(), status: z.string() }))
+    .input(z.object({
+      id: z.number().int().positive(),
+      status: z.enum(['new', 'pending', 'confirmed', 'cancelled']),
+    }))
     .mutation(async ({ input }) => {
       const booking = await db.booking.update({ where: { id: input.id }, data: { status: input.status } });
       emitBookingStatusChanged({ id: input.id, status: input.status });

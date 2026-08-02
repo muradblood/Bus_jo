@@ -43,7 +43,7 @@ const CtaBookNowSection: React.FC = () => {
   return (
     <section
       ref={sectionRef}
-      className="py-16 md:py-20 bg-brand-gold relative overflow-hidden"
+      className="sat-section-services py-16 md:py-20 bg-brand-gold relative overflow-hidden"
     >
       {/* Decorative Elements */}
       <div className="absolute top-8 right-12 w-20 h-20 rounded-full border border-white/10" />

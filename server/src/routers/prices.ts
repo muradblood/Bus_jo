@@ -118,7 +118,10 @@ function storedRoute(from: string, to: string) {
 
 export const pricesRouter = router({
   calculate: publicProcedure
-    .input(z.object({ from: z.string(), to: z.string() }))
+    .input(z.object({
+      from: z.string().trim().min(2).max(120),
+      to: z.string().trim().min(2).max(120),
+    }).refine(input => input.from !== input.to, { message: 'مدينتا الانطلاق والوصول متطابقتان' }))
     .query(async ({ input }) => {
       // Check DB first
       const stored = storedRoute(input.from, input.to);
@@ -135,24 +138,16 @@ export const pricesRouter = router({
         };
       }
       const generated = calculateGeneratedRoute(input.from, input.to);
-      db.price.create({
-        data: {
-          fromCity: generated.fromCity,
-          toCity: generated.toCity,
-          distance: generated.distance,
-          duration: generated.duration,
-          economyPrice: generated.economy,
-          businessPrice: generated.business,
-          vipPrice: generated.vip,
-          borderCrossings: JSON.stringify([]),
-          generated: true,
-        },
-      });
       return { ...generated, generated: true };
     }),
 
   bulkCalculate: publicProcedure
-    .input(z.object({ pairs: z.array(z.object({ from: z.string(), to: z.string() })) }))
+    .input(z.object({
+      pairs: z.array(z.object({
+        from: z.string().trim().min(2).max(120),
+        to: z.string().trim().min(2).max(120),
+      }).refine(pair => pair.from !== pair.to, { message: 'مدينتا الانطلاق والوصول متطابقتان' })).max(500),
+    }))
     .query(async ({ input }) => {
       return input.pairs.map(pair => {
         const stored = storedRoute(pair.from, pair.to);
@@ -164,7 +159,10 @@ export const pricesRouter = router({
     }),
 
   get: publicProcedure
-    .input(z.object({ from: z.string(), to: z.string() }))
+    .input(z.object({
+      from: z.string().trim().min(2).max(120),
+      to: z.string().trim().min(2).max(120),
+    }))
     .query(async ({ input }) => {
       return db.price.findFirst({
         where: {
@@ -237,15 +235,15 @@ export const pricesRouter = router({
 
   upsert: adminProcedure
     .input(z.object({
-      fromCity: z.string(),
-      toCity: z.string(),
-      distance: z.number().optional().default(0),
-      duration: z.number().optional().default(0),
-      economyPrice: z.number(),
-      businessPrice: z.number(),
-      vipPrice: z.number(),
-      borderCrossings: z.array(z.string()).optional().default([]),
-    }))
+      fromCity: z.string().trim().min(2).max(120),
+      toCity: z.string().trim().min(2).max(120),
+      distance: z.number().finite().nonnegative().max(100_000).optional().default(0),
+      duration: z.number().finite().nonnegative().max(10_000).optional().default(0),
+      economyPrice: z.number().finite().nonnegative().max(1_000_000),
+      businessPrice: z.number().finite().nonnegative().max(1_000_000),
+      vipPrice: z.number().finite().nonnegative().max(1_000_000),
+      borderCrossings: z.array(z.string().trim().max(120)).max(50).optional().default([]),
+    }).refine(input => input.fromCity !== input.toCity, { message: 'مدينتا الانطلاق والوصول متطابقتان' }))
     .mutation(async ({ input }) => {
       const { borderCrossings, ...rest } = input;
       return db.price.upsert({
@@ -256,7 +254,10 @@ export const pricesRouter = router({
     }),
 
   delete: adminProcedure
-    .input(z.object({ fromCity: z.string(), toCity: z.string() }))
+    .input(z.object({
+      fromCity: z.string().trim().min(2).max(120),
+      toCity: z.string().trim().min(2).max(120),
+    }))
     .mutation(async ({ input }) => {
       await db.price.deleteMany({
         where: {

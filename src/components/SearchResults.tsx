@@ -576,7 +576,13 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
       if (result.id && result.accessToken) {
         setBookingId(Number(result.id));
         setBookingAccessToken(result.accessToken);
-        await updateBookingStep.mutateAsync({ id: Number(result.id), accessToken: result.accessToken, selectedTrip: JSON.stringify(trip), selectedFare });
+        await updateBookingStep.mutateAsync({
+          id: Number(result.id),
+          accessToken: result.accessToken,
+          selectedTrip: JSON.stringify(trip),
+          selectedFare,
+          totalAmount: finalTotal,
+        });
       }
     } catch {
       alert('تعذر إنشاء الحجز على الخادم. يرجى المحاولة مرة أخرى.');
@@ -608,6 +614,7 @@ const SearchResults: React.FC<Props> = ({ bookingData, onClose }) => {
         await updateBookingStep.mutateAsync({
           id: bookingId, accessToken: bookingAccessToken, passengerName: mergedPassengers.map(p => p.fullName).join(', '),
           passengerPhone: mergedPassengers[0]?.phone || '',
+          passengerDocument: mergedPassengers.map(p => p.idNumber).join(', '),
         });
       } catch {
         alert('تعذر حفظ بيانات المسافرين على الخادم. يرجى المحاولة مرة أخرى.');

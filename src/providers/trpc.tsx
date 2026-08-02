@@ -25,10 +25,13 @@ function SettingsSyncInner() {
       localStorage.setItem("sat_pricing_settings_v3", settings.pricingSettings);
       localStorage.setItem("sat_design_settings_v1", settings.designSettings);
       const design = JSON.parse(settings.designSettings) as {
+        active?: boolean;
         colors?: Record<string, string>;
         cards?: Record<string, { enabled?: boolean; bgColor?: string; textColor?: string }>;
       };
       const root = document.documentElement;
+      if (design.active === true) root.dataset.satTheme = 'custom';
+      else delete root.dataset.satTheme;
       const colorVars: Record<string, string> = {
         primary: '--sat-primary', primaryDark: '--sat-primary-dark', background: '--sat-bg',
         cardBg: '--sat-card', textMain: '--sat-text', textMuted: '--sat-muted',
