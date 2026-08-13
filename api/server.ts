@@ -13,15 +13,9 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const SESSION_COOKIE = 'sat_admin_session';
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-
-if (NODE_ENV === 'production') {
-  if (SESSION_SECRET.length < 32) {
-    throw new Error('SESSION_SECRET must contain at least 32 characters in production');
-  }
-  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
-    throw new Error('ADMIN_USERNAME and ADMIN_PASSWORD are required in production');
-  }
-}
+const AUTH_CONFIGURED = Boolean(
+  SESSION_SECRET.length >= 32 && ADMIN_USERNAME && ADMIN_PASSWORD,
+);
 
 const app = express();
 
@@ -45,9 +39,24 @@ app.use(cors({
 
 app.use(express.json());
 
+// Keep health available even when admin credentials are not configured yet.
+app.get(['/health', '/api/health'], (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    runtime: 'vercel',
+    authReady: AUTH_CONFIGURED,
+  });
+});
+
 let adminBootstrapPromise: Promise<number> | null = null;
 
 async function ensureVercelAdmin(): Promise<number> {
+  if (!AUTH_CONFIGURED) {
+    throw new Error('Admin authentication is not configured for this Vercel environment');
+  }
+
   if (!adminBootstrapPromise) {
     adminBootstrapPromise = (async () => {
       const existing = await db.admin.findUnique({ where: { username: ADMIN_USERNAME } });
@@ -99,7 +108,7 @@ function encodeSession(username: string): string {
 }
 
 function decodeSession(token: string | undefined): { username: string } | null {
-  if (!token) return null;
+  if (!AUTH_CONFIGURED || !token) return null;
   const [payload, signature] = token.split('.');
   if (!payload || !signature) return null;
 
@@ -129,9 +138,14 @@ function sessionCookie(value: string, maxAgeSeconds = SESSION_MAX_AGE_SECONDS): 
 
 app.use(async (req, res, next) => {
   try {
-    const adminId = await ensureVercelAdmin();
     const cookies = parseCookies(req.headers.cookie);
     const decoded = decodeSession(cookies[SESSION_COOKIE]);
+
+    let adminId: number | undefined;
+    if (AUTH_CONFIGURED) {
+      const resolvedAdminId = await ensureVercelAdmin();
+      if (decoded?.username === ADMIN_USERNAME) adminId = resolvedAdminId;
+    }
 
     const sessionState: {
       adminId?: number;
@@ -139,14 +153,14 @@ app.use(async (req, res, next) => {
       save: (callback: (error?: unknown) => void) => void;
       destroy: (callback: (error?: unknown) => void) => void;
     } = {
-      adminId: decoded?.username === ADMIN_USERNAME ? adminId : undefined,
+      adminId,
       regenerate(callback) {
         delete sessionState.adminId;
         callback();
       },
       save(callback) {
         try {
-          if (!sessionState.adminId) {
+          if (!sessionState.adminId || !AUTH_CONFIGURED) {
             res.setHeader('Set-Cookie', sessionCookie('', 0));
           } else {
             res.setHeader('Set-Cookie', sessionCookie(encodeSession(ADMIN_USERNAME)));
@@ -177,10 +191,5 @@ app.use(
     createContext: ({ req, res }) => createContext({ req, res }),
   })
 );
-
-app.get(['/health', '/api/health'], (_req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  res.json({ status: 'ok', time: new Date().toISOString(), runtime: 'vercel' });
-});
 
 export default app;
