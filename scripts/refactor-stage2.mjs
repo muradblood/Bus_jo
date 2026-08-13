@@ -1,1 +1,1 @@
-// Temporary stage-2 codemod disabled. No runtime imports reference this file.
+// This file is intentionally inactive and does not execute or alter the application.
