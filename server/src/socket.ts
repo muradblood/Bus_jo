@@ -1,10 +1,16 @@
 import { Server as SocketIOServer } from 'socket.io';
-import type { Server as HttpServer } from 'http';
+import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'http';
 import type { RequestHandler } from 'express';
 
-type SessionRequest = Parameters<RequestHandler>[0] & {
+type SessionRequest = IncomingMessage & {
   session?: { adminId?: number };
 };
+
+type EngineSessionMiddleware = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  next: (error?: Error) => void,
+) => void;
 
 // Global Socket.IO instance — set once when the HTTP server starts.
 let _io: SocketIOServer | null = null;
@@ -37,7 +43,8 @@ export function initSocketIO(httpServer: HttpServer, sessionMiddleware: RequestH
   });
 
   // Reuse the Express session cookie during the Socket.IO handshake.
-  _io.engine.use(sessionMiddleware);
+  const engineSessionMiddleware = sessionMiddleware as unknown as EngineSessionMiddleware;
+  _io.engine.use((req, res, next) => engineSessionMiddleware(req, res, next));
 
   _io.use((socket, next) => {
     const request = socket.request as SessionRequest;
