@@ -1,2 +1,2 @@
-export { default } from '@/features/admin/pages/AdminDashboard';
-export * from '@/features/admin/pages/AdminDashboard';
+export { default } from '@/features/admin/pages/AdminDashboardModular';
+export * from '@/features/admin/pages/AdminDashboardModular';
