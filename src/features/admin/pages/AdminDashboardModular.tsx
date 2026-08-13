@@ -32,7 +32,11 @@ const AdminDashboardModular: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [socketConnected, setSocketConnected] = useState(socket.connected);
 
-  const { data: meData, isLoading: authLoading } = trpc.auth.me.useQuery(undefined, { retry: false });
+  const { data: meData, isLoading: authLoading } = trpc.auth.me.useQuery(undefined, {
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
   const logoutMutation = trpc.auth.logout.useMutation({ onSuccess: () => { navigate('/admin-login'); } });
   const isAuthenticated = Boolean(meData && (meData as { id?: number }).id);
 
