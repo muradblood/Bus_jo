@@ -5,6 +5,7 @@ import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from '../server/src/routers/index.js';
 import { createContext } from '../server/src/context.js';
 import { JsonSessionStore } from '../server/src/sessionStore.js';
+import { db } from '../server/src/db.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || 'sat-bus-secret-change-in-production';
 const NODE_ENV = process.env.NODE_ENV || 'production';
@@ -55,7 +56,18 @@ app.use(
 );
 
 app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    auth: {
+      adminUsernameConfigured: Boolean(process.env.ADMIN_USERNAME?.trim()),
+      adminPasswordConfigured: Boolean(process.env.ADMIN_PASSWORD),
+      sessionSecretConfigured: Boolean(process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32),
+      adminRecords: db.admin.count(),
+      sessionRecords: db.session.count(),
+      ephemeralStorage: Boolean(process.env.VERCEL),
+    },
+  });
 });
 
 export default app;
