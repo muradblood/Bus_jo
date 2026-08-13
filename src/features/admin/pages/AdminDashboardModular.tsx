@@ -28,6 +28,7 @@ function LoadingScreen() {
 
 const AdminDashboardModular: React.FC = () => {
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [socketConnected, setSocketConnected] = useState(socket.connected);
@@ -37,7 +38,12 @@ const AdminDashboardModular: React.FC = () => {
     staleTime: 0,
     refetchOnMount: 'always',
   });
-  const logoutMutation = trpc.auth.logout.useMutation({ onSuccess: () => { navigate('/admin-login'); } });
+  const logoutMutation = trpc.auth.logout.useMutation({
+    onSuccess: () => {
+      utils.auth.me.setData(undefined, null);
+      navigate('/admin-login');
+    },
+  });
   const isAuthenticated = Boolean(meData && (meData as { id?: number }).id);
 
   useEffect(() => {
