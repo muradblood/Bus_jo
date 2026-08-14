@@ -139,7 +139,7 @@ export const bookingsRouter = router({
     }))
     .mutation(async ({ input }) => {
       const { id, accessToken, ...data } = input;
-      const current = db.booking.findUnique({ where: { id } });
+      const current = await db.booking.findUnique({ where: { id } });
       if (!current || !current.accessToken || current.accessToken !== accessToken) {
         throw new TRPCError({ code: 'UNAUTHORIZED', message: 'تعذر التحقق من صلاحية الحجز' });
       }
@@ -153,7 +153,7 @@ export const bookingsRouter = router({
       if (data.paymentMethod !== undefined) update.paymentMethod = data.paymentMethod;
       if (data.paymentStatus !== undefined) update.paymentStatus = data.paymentStatus;
       if (data.totalAmount !== undefined) {
-        const storedPrice = db.price.findFirst({
+        const storedPrice = await db.price.findFirst({
           where: {
             OR: [
               { fromCity: current.fromLocation, toCity: current.toLocation },
@@ -161,7 +161,7 @@ export const bookingsRouter = router({
             ],
           },
         });
-        const generated = calculateGeneratedRoute(current.fromLocation, current.toLocation);
+        const generated = await calculateGeneratedRoute(current.fromLocation, current.toLocation);
         const economy = storedPrice?.economyPrice ?? generated.economy;
         const business = storedPrice?.businessPrice ?? generated.business;
         const vip = storedPrice?.vipPrice ?? generated.vip;
@@ -186,7 +186,7 @@ export const bookingsRouter = router({
   get: publicProcedure
     .input(z.object({ id: z.number().int().positive(), accessToken: z.string().length(48) }))
     .query(async ({ input }) => {
-      const booking = db.booking.findUnique({ where: { id: input.id } });
+      const booking = await db.booking.findUnique({ where: { id: input.id } });
       if (!booking || !booking.accessToken || booking.accessToken !== input.accessToken) {
         throw new TRPCError({ code: 'NOT_FOUND', message: 'الحجز غير موجود' });
       }
