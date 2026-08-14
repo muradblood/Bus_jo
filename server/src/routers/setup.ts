@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
-import { db } from '../db.js';
+import { db, databaseBackend, isDurableDatabaseConfigured } from '../db.js';
 import { publicProcedure, router } from '../trpc.js';
 
 const installInput = z.object({
@@ -9,30 +9,32 @@ const installInput = z.object({
   password: z.string().min(8).max(200),
 });
 
-function getSetupState() {
-  const adminExists = db.admin.count() > 0;
+async function getSetupState() {
+  const adminExists = (await db.admin.count()) > 0;
   const isVercel = Boolean(process.env.VERCEL);
   const sessionSecretReady = Boolean(
     process.env.NODE_ENV !== 'production' ||
       (process.env.SESSION_SECRET && process.env.SESSION_SECRET.length >= 32),
   );
+  const persistentStorage = isDurableDatabaseConfigured();
 
   return {
     adminExists,
     runtime: isVercel ? 'vercel' as const : 'persistent' as const,
-    persistentStorage: !isVercel,
+    databaseBackend,
+    persistentStorage,
     sessionSecretReady,
-    canInstall: !adminExists && !isVercel && sessionSecretReady,
+    canInstall: !adminExists && persistentStorage && sessionSecretReady,
   };
 }
 
 export const setupRouter = router({
-  status: publicProcedure.query(() => getSetupState()),
+  status: publicProcedure.query(async () => getSetupState()),
 
   install: publicProcedure
     .input(installInput)
     .mutation(async ({ input, ctx }) => {
-      const state = getSetupState();
+      const state = await getSetupState();
 
       if (state.adminExists) {
         throw new TRPCError({
@@ -44,7 +46,7 @@ export const setupRouter = router({
       if (!state.persistentStorage) {
         throw new TRPCError({
           code: 'PRECONDITION_FAILED',
-          message: 'لا يمكن حفظ التثبيت بشكل دائم على تخزين Vercel المؤقت. يلزم ربط قاعدة بيانات دائمة أولاً.',
+          message: 'لا يوجد تخزين دائم. اربط Turso Cloud على Vercel أولاً.',
         });
       }
 
@@ -56,7 +58,7 @@ export const setupRouter = router({
       }
 
       // Re-check immediately before creating the account to keep setup one-time.
-      if (db.admin.count() > 0) {
+      if ((await db.admin.count()) > 0) {
         throw new TRPCError({
           code: 'CONFLICT',
           message: 'تم إنشاء حساب الإدارة بالفعل',
@@ -64,7 +66,7 @@ export const setupRouter = router({
       }
 
       const passwordHash = await bcrypt.hash(input.password, 12);
-      const admin = db.admin.create({
+      const admin = await db.admin.create({
         data: {
           username: input.username,
           passwordHash,
