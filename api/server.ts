@@ -1,21 +1,16 @@
 import express from 'express';
 import cors from 'cors';
-import bcrypt from 'bcryptjs';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from '../server/src/routers/index.js';
 import { createContext } from '../server/src/context.js';
-import { db } from '../server/src/db.js';
+import { db, databaseBackend, isDurableDatabaseConfigured } from '../server/src/db.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME?.trim() || '';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const NODE_ENV = process.env.NODE_ENV || 'production';
 const SESSION_COOKIE = 'sat_admin_session';
 const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-const AUTH_CONFIGURED = Boolean(
-  SESSION_SECRET.length >= 32 && ADMIN_USERNAME && ADMIN_PASSWORD,
-);
+const SESSION_READY = SESSION_SECRET.length >= 32;
 
 const app = express();
 
@@ -39,48 +34,17 @@ app.use(cors({
 
 app.use(express.json());
 
-// Keep health available even when admin credentials are not configured yet.
 app.get(['/health', '/api/health'], (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({
     status: 'ok',
     time: new Date().toISOString(),
     runtime: 'vercel',
-    authReady: AUTH_CONFIGURED,
+    sessionReady: SESSION_READY,
+    databaseReady: isDurableDatabaseConfigured(),
+    databaseBackend,
   });
 });
-
-let adminBootstrapPromise: Promise<number> | null = null;
-
-async function ensureVercelAdmin(): Promise<number> {
-  if (!AUTH_CONFIGURED) {
-    throw new Error('Admin authentication is not configured for this Vercel environment');
-  }
-
-  if (!adminBootstrapPromise) {
-    adminBootstrapPromise = (async () => {
-      const existing = await db.admin.findUnique({ where: { username: ADMIN_USERNAME } });
-      const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
-
-      if (existing) {
-        if (!(await bcrypt.compare(ADMIN_PASSWORD, existing.passwordHash))) {
-          const updated = await db.admin.update({
-            where: { id: existing.id },
-            data: { passwordHash },
-          });
-          return updated.id;
-        }
-        return existing.id;
-      }
-
-      const created = await db.admin.create({
-        data: { username: ADMIN_USERNAME, passwordHash },
-      });
-      return created.id;
-    })();
-  }
-  return adminBootstrapPromise;
-}
 
 function parseCookies(header: string | undefined): Record<string, string> {
   if (!header) return {};
@@ -99,16 +63,16 @@ function signPayload(payload: string): string {
   return createHmac('sha256', SESSION_SECRET).update(payload).digest('base64url');
 }
 
-function encodeSession(username: string): string {
+function encodeSession(adminId: number): string {
   const payload = Buffer.from(JSON.stringify({
-    username,
+    adminId,
     exp: Date.now() + SESSION_MAX_AGE_SECONDS * 1000,
   })).toString('base64url');
   return `${payload}.${signPayload(payload)}`;
 }
 
-function decodeSession(token: string | undefined): { username: string } | null {
-  if (!AUTH_CONFIGURED || !token) return null;
+function decodeSession(token: string | undefined): { adminId: number } | null {
+  if (!SESSION_READY || !token) return null;
   const [payload, signature] = token.split('.');
   if (!payload || !signature) return null;
 
@@ -121,11 +85,11 @@ function decodeSession(token: string | undefined): { username: string } | null {
 
   try {
     const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
-      username?: string;
+      adminId?: number;
       exp?: number;
     };
-    if (!parsed.username || !parsed.exp || parsed.exp <= Date.now()) return null;
-    return { username: parsed.username };
+    if (!Number.isInteger(parsed.adminId) || !parsed.adminId || !parsed.exp || parsed.exp <= Date.now()) return null;
+    return { adminId: parsed.adminId };
   } catch {
     return null;
   }
@@ -142,9 +106,9 @@ app.use(async (req, res, next) => {
     const decoded = decodeSession(cookies[SESSION_COOKIE]);
 
     let adminId: number | undefined;
-    if (AUTH_CONFIGURED) {
-      const resolvedAdminId = await ensureVercelAdmin();
-      if (decoded?.username === ADMIN_USERNAME) adminId = resolvedAdminId;
+    if (decoded?.adminId) {
+      const admin = await db.admin.findUnique({ where: { id: decoded.adminId } });
+      if (admin) adminId = admin.id;
     }
 
     const sessionState: {
@@ -160,10 +124,10 @@ app.use(async (req, res, next) => {
       },
       save(callback) {
         try {
-          if (!sessionState.adminId || !AUTH_CONFIGURED) {
+          if (!sessionState.adminId || !SESSION_READY) {
             res.setHeader('Set-Cookie', sessionCookie('', 0));
           } else {
-            res.setHeader('Set-Cookie', sessionCookie(encodeSession(ADMIN_USERNAME)));
+            res.setHeader('Set-Cookie', sessionCookie(encodeSession(sessionState.adminId)));
           }
           callback();
         } catch (error) {
