@@ -39,28 +39,36 @@ const CITIES: Record<string, { lat: number; lng: number }> = {
   'القاهرة': { lat: 30.0444, lng: 31.2357 },
 };
 
-function getCityCoords(name: string): { lat: number; lng: number } | null {
-  ensureCitiesSeeded();
-  const stored = db.city.findFirst({ where: { name } });
+async function getCityCoords(name: string): Promise<{ lat: number; lng: number } | null> {
+  await ensureCitiesSeeded();
+  const stored = await db.city.findFirst({ where: { name } });
   if (stored && (stored.lat !== 0 || stored.lng !== 0)) {
     return { lat: stored.lat, lng: stored.lng };
   }
   return CITIES[name] || null;
 }
 
-function calcBasePrice(from: string, to: string): number {
+async function getPricingSettings(): Promise<Record<string, unknown>> {
+  const setting = await db.setting.findUnique({ where: { key: 'pricingSettings' } });
+  if (!setting?.value) return {};
+  try {
+    const parsed = JSON.parse(setting.value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function calcBasePrice(from: string, to: string): Promise<number> {
   let globalMin = 40;
   let globalMax = 160;
-  const setting = db.setting.findUnique({ where: { key: 'pricingSettings' } });
-  if (setting?.value) {
-    try {
-      const parsed = JSON.parse(setting.value) as Record<string, unknown>;
-      if (typeof parsed.globalMin === 'number') globalMin = parsed.globalMin;
-      if (typeof parsed.globalMax === 'number') globalMax = parsed.globalMax;
-    } catch { /* use defaults */ }
-  }
-  const c1 = getCityCoords(from);
-  const c2 = getCityCoords(to);
+  const parsed = await getPricingSettings();
+  if (typeof parsed.globalMin === 'number') globalMin = parsed.globalMin;
+  if (typeof parsed.globalMax === 'number') globalMax = parsed.globalMax;
+
+  const [c1, c2] = await Promise.all([getCityCoords(from), getCityCoords(to)]);
   if (!c1 || !c2) return Math.round((globalMin + globalMax) / 2);
   const dist = distanceKm(c1.lat, c1.lng, c2.lat, c2.lng) * 1.18;
   if (dist <= 10) return globalMin;
@@ -68,26 +76,22 @@ function calcBasePrice(from: string, to: string): number {
   return Math.round(globalMin + ((dist - 10) / (2100 - 10)) * (globalMax - globalMin));
 }
 
-function getMultipliers() {
+async function getMultipliers() {
   const defaults = { business: 1.2, vip: 2 };
-  const setting = db.setting.findUnique({ where: { key: 'pricingSettings' } });
-  if (!setting?.value) return defaults;
-  try {
-    const parsed = JSON.parse(setting.value) as Record<string, unknown>;
-    return {
-      business: typeof parsed.businessMultiplier === 'number' ? parsed.businessMultiplier : defaults.business,
-      vip: typeof parsed.vipMultiplier === 'number' ? parsed.vipMultiplier : defaults.vip,
-    };
-  } catch {
-    return defaults;
-  }
+  const parsed = await getPricingSettings();
+  return {
+    business: typeof parsed.businessMultiplier === 'number' ? parsed.businessMultiplier : defaults.business,
+    vip: typeof parsed.vipMultiplier === 'number' ? parsed.vipMultiplier : defaults.vip,
+  };
 }
 
-export function calculateGeneratedRoute(from: string, to: string) {
-  const economy = calcBasePrice(from, to);
-  const multipliers = getMultipliers();
-  const c1 = getCityCoords(from);
-  const c2 = getCityCoords(to);
+export async function calculateGeneratedRoute(from: string, to: string) {
+  const [economy, multipliers, c1, c2] = await Promise.all([
+    calcBasePrice(from, to),
+    getMultipliers(),
+    getCityCoords(from),
+    getCityCoords(to),
+  ]);
   // Haversine gives straight-line distance. The road factor keeps generated
   // bus distance closer to the actual driven route while remaining deterministic.
   const distance = c1 && c2
@@ -105,7 +109,7 @@ export function calculateGeneratedRoute(from: string, to: string) {
   };
 }
 
-function storedRoute(from: string, to: string) {
+async function storedRoute(from: string, to: string) {
   return db.price.findFirst({
     where: {
       OR: [
@@ -124,7 +128,7 @@ export const pricesRouter = router({
     }).refine(input => input.from !== input.to, { message: 'مدينتا الانطلاق والوصول متطابقتان' }))
     .query(async ({ input }) => {
       // Check DB first
-      const stored = storedRoute(input.from, input.to);
+      const stored = await storedRoute(input.from, input.to);
       if (stored) {
         return {
           fromCity: stored.fromCity,
@@ -137,7 +141,7 @@ export const pricesRouter = router({
           generated: stored.generated ?? false,
         };
       }
-      const generated = calculateGeneratedRoute(input.from, input.to);
+      const generated = await calculateGeneratedRoute(input.from, input.to);
       return { ...generated, generated: true };
     }),
 
@@ -149,13 +153,13 @@ export const pricesRouter = router({
       }).refine(pair => pair.from !== pair.to, { message: 'مدينتا الانطلاق والوصول متطابقتان' })).max(500),
     }))
     .query(async ({ input }) => {
-      return input.pairs.map(pair => {
-        const stored = storedRoute(pair.from, pair.to);
+      return Promise.all(input.pairs.map(async pair => {
+        const stored = await storedRoute(pair.from, pair.to);
         if (stored) {
           return { ...pair, economy: stored.economyPrice, business: stored.businessPrice, vip: stored.vipPrice, distance: stored.distance, duration: stored.duration };
         }
         return calculateGeneratedRoute(pair.from, pair.to);
-      });
+      }));
     }),
 
   get: publicProcedure
@@ -178,9 +182,9 @@ export const pricesRouter = router({
     return db.price.findMany({ orderBy: { fromCity: 'asc' } });
   }),
 
-  catalog: adminProcedure.query(() => {
-    ensureCitiesSeeded();
-    const cities = db.city.findMany({ orderBy: { name: 'asc' } });
+  catalog: adminProcedure.query(async () => {
+    await ensureCitiesSeeded();
+    const cities = await db.city.findMany({ orderBy: { name: 'asc' } });
     const rows = [] as Array<{
       id: number;
       fromCity: string;
@@ -198,7 +202,7 @@ export const pricesRouter = router({
       for (let j = i + 1; j < cities.length; j++) {
         const from = cities[i].name;
         const to = cities[j].name;
-        const stored = storedRoute(from, to);
+        const stored = await storedRoute(from, to);
         if (stored) {
           rows.push({
             id: stored.id,
@@ -213,7 +217,7 @@ export const pricesRouter = router({
             generated: stored.generated ?? false,
           });
         } else {
-          const generated = calculateGeneratedRoute(from, to);
+          const generated = await calculateGeneratedRoute(from, to);
           rows.push({
             id: -id,
             fromCity: from,
@@ -270,8 +274,8 @@ export const pricesRouter = router({
       return { success: true };
     }),
 
-  reset: adminProcedure.mutation(() => {
-    const result = db.price.deleteMany();
+  reset: adminProcedure.mutation(async () => {
+    const result = await db.price.deleteMany();
     return { success: true, count: result.count };
   }),
 });
