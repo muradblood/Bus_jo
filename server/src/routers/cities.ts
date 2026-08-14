@@ -42,13 +42,30 @@ const CITIES = [
   { name: 'بغداد', lat: 33.3128, lng: 44.3615, region: 'بغداد', country: 'العراق' },
 ];
 
-export function ensureCitiesSeeded() {
-  if (db.city.count() > 0) return;
-  CITIES.forEach((city, index) => db.city.create({ data: { id: index + 1, ...city } }));
+let citiesSeedPromise: Promise<void> | null = null;
+
+export async function ensureCitiesSeeded(): Promise<void> {
+  if (!citiesSeedPromise) {
+    citiesSeedPromise = (async () => {
+      if ((await db.city.count()) > 0) return;
+      for (let index = 0; index < CITIES.length; index++) {
+        const city = CITIES[index];
+        await db.city.upsert({
+          where: { name: city.name },
+          create: { id: index + 1, ...city },
+          update: city,
+        });
+      }
+    })().catch((error) => {
+      citiesSeedPromise = null;
+      throw error;
+    });
+  }
+  await citiesSeedPromise;
 }
 
-function listCities() {
-  ensureCitiesSeeded();
+async function listCities() {
+  await ensureCitiesSeeded();
   return db.city.findMany({ orderBy: { name: 'asc' } });
 }
 
@@ -61,7 +78,8 @@ export const citiesRouter = router({
     .input(z.object({ query: z.string().max(120) }))
     .query(async ({ input }) => {
       const q = input.query.trim().toLowerCase();
-      return listCities().filter(c =>
+      const cities = await listCities();
+      return cities.filter(c =>
         c.name.includes(input.query) ||
         c.region.includes(input.query) ||
         c.country.includes(input.query) ||
@@ -74,7 +92,7 @@ export const citiesRouter = router({
   autoComplete: publicProcedure
     .input(z.object({ query: z.string().max(120) }))
     .query(async ({ input }) => {
-      const cities = listCities();
+      const cities = await listCities();
       if (!input.query.trim()) return cities.slice(0, 10);
       return cities.filter(c =>
         c.name.includes(input.query) ||
@@ -94,8 +112,8 @@ export const citiesRouter = router({
       path: ['lat'],
     }))
     .mutation(async ({ input }) => {
-      ensureCitiesSeeded();
-      const duplicate = db.city.findFirst({ where: { name: input.name } });
+      await ensureCitiesSeeded();
+      const duplicate = await db.city.findFirst({ where: { name: input.name } });
       if (duplicate) {
         throw new TRPCError({ code: 'CONFLICT', message: 'المدينة موجودة مسبقاً' });
       }
@@ -105,7 +123,7 @@ export const citiesRouter = router({
   delete: adminProcedure
     .input(z.object({ id: z.number().int().positive() }))
     .mutation(async ({ input }) => {
-      db.city.delete({ where: { id: input.id } });
+      await db.city.delete({ where: { id: input.id } });
       return { success: true };
     }),
 });
