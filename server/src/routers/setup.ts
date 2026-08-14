@@ -66,12 +66,24 @@ export const setupRouter = router({
       }
 
       const passwordHash = await bcrypt.hash(input.password, 12);
-      const admin = await db.admin.create({
-        data: {
-          username: input.username,
-          passwordHash,
-        },
-      });
+      let admin;
+      try {
+        admin = await db.admin.create({
+          data: {
+            id: 1,
+            username: input.username,
+            passwordHash,
+          },
+        });
+      } catch (error) {
+        if ((await db.admin.count()) > 0) {
+          throw new TRPCError({
+            code: 'CONFLICT',
+            message: 'تم إنشاء حساب الإدارة بالفعل',
+          });
+        }
+        throw error;
+      }
 
       const requestSession = (ctx.req as any).session;
       if (requestSession?.regenerate && requestSession?.save) {
