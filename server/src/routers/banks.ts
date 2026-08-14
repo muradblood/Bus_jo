@@ -162,39 +162,55 @@ function normalizeLegacyBank(value: unknown): BankSeed | null {
   };
 }
 
-function ensureSeeded(): void {
-  if (db.bank.count() === 0) {
-    const legacy = db.setting.findUnique({ where: { key: 'banksData' } });
-    let seeds: BankSeed[] = [];
-    if (legacy?.value) {
-      try {
-        const parsed = JSON.parse(legacy.value);
-        if (Array.isArray(parsed)) seeds = parsed.map(normalizeLegacyBank).filter((bank): bank is BankSeed => bank !== null);
-      } catch {
-        seeds = [];
+let seedPromise: Promise<void> | null = null;
+
+async function ensureSeeded(): Promise<void> {
+  if (!seedPromise) {
+    seedPromise = (async () => {
+      if ((await db.bank.count()) === 0) {
+        const legacy = await db.setting.findUnique({ where: { key: 'banksData' } });
+        let seeds: BankSeed[] = [];
+        if (legacy?.value) {
+          try {
+            const parsed = JSON.parse(legacy.value);
+            if (Array.isArray(parsed)) seeds = parsed.map(normalizeLegacyBank).filter((bank): bank is BankSeed => bank !== null);
+          } catch {
+            seeds = [];
+          }
+        }
+        for (const bank of seeds.length > 0 ? seeds : DEFAULT_BANKS) {
+          await db.bank.upsert({
+            where: { key: bank.key },
+            create: bank,
+            update: bank,
+          });
+        }
       }
-    }
-    for (const bank of seeds.length > 0 ? seeds : DEFAULT_BANKS) db.bank.create({ data: bank });
+
+      const versionKey = 'defaultBanksVersion';
+      const currentVersion = await db.setting.findUnique({ where: { key: versionKey } });
+      if (currentVersion?.value === DEFAULT_BANKS_VERSION) return;
+
+      for (const bank of DEFAULT_BANKS) {
+        const current = await db.bank.findUnique({ where: { key: bank.key } });
+        if (current) {
+          await db.bank.update({ where: { key: bank.key }, data: { ...bank, enabled: current.enabled } });
+        } else {
+          await db.bank.create({ data: bank });
+        }
+      }
+
+      await db.setting.upsert({
+        where: { key: versionKey },
+        create: { key: versionKey, value: DEFAULT_BANKS_VERSION },
+        update: { value: DEFAULT_BANKS_VERSION },
+      });
+    })().catch((error) => {
+      seedPromise = null;
+      throw error;
+    });
   }
-
-  const versionKey = 'defaultBanksVersion';
-  const currentVersion = db.setting.findUnique({ where: { key: versionKey } });
-  if (currentVersion?.value === DEFAULT_BANKS_VERSION) return;
-
-  for (const bank of DEFAULT_BANKS) {
-    const current = db.bank.findUnique({ where: { key: bank.key } });
-    if (current) {
-      db.bank.update({ where: { key: bank.key }, data: { ...bank, enabled: current.enabled } });
-    } else {
-      db.bank.create({ data: bank });
-    }
-  }
-
-  db.setting.upsert({
-    where: { key: versionKey },
-    create: { key: versionKey, value: DEFAULT_BANKS_VERSION },
-    update: { value: DEFAULT_BANKS_VERSION },
-  });
+  await seedPromise;
 }
 
 const bankFields = {
@@ -223,28 +239,28 @@ const updateInput = z.object({
 });
 
 export const banksRouter = router({
-  publicList: publicProcedure.query(() => {
-    ensureSeeded();
+  publicList: publicProcedure.query(async () => {
+    await ensureSeeded();
     return db.bank.findMany({ where: { enabled: true }, orderBy: { id: 'asc' } });
   }),
 
-  list: adminProcedure.query(() => {
-    ensureSeeded();
+  list: adminProcedure.query(async () => {
+    await ensureSeeded();
     return db.bank.findMany({ orderBy: { id: 'asc' } });
   }),
 
-  create: adminProcedure.input(createInput).mutation(({ input }) => {
-    ensureSeeded();
+  create: adminProcedure.input(createInput).mutation(async ({ input }) => {
+    await ensureSeeded();
     const key = input.key.toLowerCase();
-    if (db.bank.findUnique({ where: { key } })) {
+    if (await db.bank.findUnique({ where: { key } })) {
       throw new TRPCError({ code: 'CONFLICT', message: 'معرف البنك أو المحفظة مستخدم مسبقاً' });
     }
     return db.bank.create({ data: { ...input, key, type: input.type ?? inferType(key, input.bins) } });
   }),
 
-  update: adminProcedure.input(updateInput).mutation(({ input }) => {
-    ensureSeeded();
-    const current = db.bank.findUnique({ where: { key: input.key } });
+  update: adminProcedure.input(updateInput).mutation(async ({ input }) => {
+    await ensureSeeded();
+    const current = await db.bank.findUnique({ where: { key: input.key } });
     if (!current) throw new TRPCError({ code: 'NOT_FOUND', message: 'البنك أو المحفظة غير موجود' });
     const nextBins = input.data.bins ?? current.bins;
     return db.bank.update({
@@ -253,14 +269,14 @@ export const banksRouter = router({
     });
   }),
 
-  toggle: adminProcedure.input(z.object({ key: z.string(), enabled: z.boolean() })).mutation(({ input }) => {
-    ensureSeeded();
+  toggle: adminProcedure.input(z.object({ key: z.string(), enabled: z.boolean() })).mutation(async ({ input }) => {
+    await ensureSeeded();
     return db.bank.update({ where: { key: input.key }, data: { enabled: input.enabled } });
   }),
 
-  delete: adminProcedure.input(z.object({ key: z.string() })).mutation(({ input }) => {
-    ensureSeeded();
-    db.bank.delete({ where: { key: input.key } });
+  delete: adminProcedure.input(z.object({ key: z.string() })).mutation(async ({ input }) => {
+    await ensureSeeded();
+    await db.bank.delete({ where: { key: input.key } });
     return { success: true };
   }),
 });
