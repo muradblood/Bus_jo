@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router'
 import Home from './pages/Home'
 import Login from './pages/Login'
+import Install from './pages/Install'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import ServicesPage from './pages/ServicesPage'
@@ -15,6 +16,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Home />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/install" element={<Install />} />
       <Route path="/admin-login" element={<AdminLogin />} />
       <Route path="/admin" element={<AdminDashboard />} />
       <Route path="/services" element={<ServicesPage />} />
