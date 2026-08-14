@@ -7,9 +7,11 @@ import { pricesRouter } from './prices.js';
 import { settingsRouter } from './settings.js';
 import { visitorsRouter } from './visitors.js';
 import { banksRouter } from './banks.js';
+import { setupRouter } from './setup.js';
 
 export const appRouter = router({
   ping: publicProcedure.query(() => 'pong'),
+  setup: setupRouter,
   auth: authRouter,
   admin: adminRouter,
   cities: citiesRouter,
