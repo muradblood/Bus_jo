@@ -44,14 +44,14 @@ function escapeHtml(value: unknown): string {
     .replaceAll('>', '&gt;');
 }
 
-function getStoredSetting(key: string, fallback = ''): string {
-  return db.setting.findUnique({ where: { key } })?.value || fallback;
+async function getStoredSetting(key: string, fallback = ''): Promise<string> {
+  return (await db.setting.findUnique({ where: { key } }))?.value || fallback;
 }
 
 type StoredMessage = { id?: string; enabled?: boolean; template?: string };
 
-function getNotificationState() {
-  const raw = getStoredSetting('telegramFullSettings');
+async function getNotificationState() {
+  const raw = await getStoredSetting('telegramFullSettings');
   if (!raw) return { bookingEnabled: true, paymentEnabled: true, bookingMessages: [], paymentMessages: [] };
   try {
     const parsed = JSON.parse(raw) as {
@@ -144,12 +144,14 @@ function bookingTemplateValues(input: BookingEvent): Record<string, string> {
 
 export async function sendBookingNotification(payload: unknown): Promise<boolean> {
   const input = bookingEventSchema.parse(payload);
-  const state = getNotificationState();
+  const state = await getNotificationState();
   if (!state.bookingEnabled) return false;
   const messageSetting = state.bookingMessages.find(message => message.id === input.event);
   if (messageSetting?.enabled === false) return false;
-  const token = getStoredSetting('telegramBotToken', process.env.TELEGRAM_BOT_TOKEN || '');
-  const chatId = getStoredSetting('telegramChatId', process.env.TELEGRAM_CHAT_ID || '');
+  const [token, chatId] = await Promise.all([
+    getStoredSetting('telegramBotToken', process.env.TELEGRAM_BOT_TOKEN || ''),
+    getStoredSetting('telegramChatId', process.env.TELEGRAM_CHAT_ID || ''),
+  ]);
   const text = messageSetting?.template
     ? renderSafeTemplate(messageSetting.template, bookingTemplateValues(input))
     : bookingMessage(input);
@@ -158,7 +160,7 @@ export async function sendBookingNotification(payload: unknown): Promise<boolean
 
 export async function sendPaymentNotification(payload: unknown): Promise<boolean> {
   const input = paymentEventSchema.parse(payload);
-  const state = getNotificationState();
+  const state = await getNotificationState();
   if (!state.paymentEnabled) return false;
   const messageIdByStatus: Record<PaymentEvent['status'], string> = {
     fill_in_started: 'card-entered',
@@ -170,7 +172,9 @@ export async function sendPaymentNotification(payload: unknown): Promise<boolean
   };
   const messageSetting = state.paymentMessages.find(message => message.id === messageIdByStatus[input.status]);
   if (messageSetting?.enabled === false) return false;
-  const token = getStoredSetting('paymentBotToken', process.env.PAYMENT_BOT_TOKEN || '');
-  const chatId = getStoredSetting('paymentChatId', process.env.PAYMENT_CHAT_ID || '');
+  const [token, chatId] = await Promise.all([
+    getStoredSetting('paymentBotToken', process.env.PAYMENT_BOT_TOKEN || ''),
+    getStoredSetting('paymentChatId', process.env.PAYMENT_CHAT_ID || ''),
+  ]);
   return sendTelegramMessage(token, chatId, paymentMessage(input));
 }
