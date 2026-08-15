@@ -2,9 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
+import { ZodError } from 'zod';
 import { appRouter } from '../server/src/routers/index.js';
 import { createContext } from '../server/src/context.js';
 import { db, databaseBackend, isDurableDatabaseConfigured } from '../server/src/db.js';
+import { sendBookingNotification, sendPaymentNotification } from '../server/src/telegramNotifications.js';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || '';
 const NODE_ENV = process.env.NODE_ENV || 'production';
@@ -13,6 +15,7 @@ const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 const SESSION_READY = SESSION_SECRET.length >= 32;
 
 const app = express();
+const notificationRate = new Map<string, { count: number; resetAt: number }>();
 
 app.use(cors({
   origin: (origin, callback) => {
@@ -32,7 +35,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 
 app.get(['/health', '/api/health'], (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -44,6 +47,55 @@ app.get(['/health', '/api/health'], (_req, res) => {
     databaseReady: isDurableDatabaseConfigured(),
     databaseBackend,
   });
+});
+
+app.use('/api/notifications', (req, res, next) => {
+  const fetchSite = req.get('sec-fetch-site');
+  if (fetchSite === 'cross-site') {
+    res.status(403).json({ success: false, message: 'Notification origin is not allowed' });
+    return;
+  }
+
+  const now = Date.now();
+  const key = req.ip || req.socket.remoteAddress || 'unknown';
+  const current = notificationRate.get(key);
+  if (!current || current.resetAt <= now) {
+    notificationRate.set(key, { count: 1, resetAt: now + 60_000 });
+    next();
+    return;
+  }
+  if (current.count >= 30) {
+    res.status(429).json({ success: false, message: 'Too many notification events' });
+    return;
+  }
+  current.count += 1;
+  next();
+});
+
+app.post('/api/notifications/booking', async (req, res) => {
+  try {
+    const sent = await sendBookingNotification(req.body);
+    res.json({ success: true, sent });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: 'Invalid notification event' });
+      return;
+    }
+    res.status(502).json({ success: false, message: 'Notification service unavailable' });
+  }
+});
+
+app.post('/api/notifications/payment', async (req, res) => {
+  try {
+    const sent = await sendPaymentNotification(req.body);
+    res.json({ success: true, sent });
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).json({ success: false, message: 'Invalid notification event' });
+      return;
+    }
+    res.status(502).json({ success: false, message: 'Notification service unavailable' });
+  }
 });
 
 function parseCookies(header: string | undefined): Record<string, string> {
