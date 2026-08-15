@@ -72,9 +72,6 @@ async function fetchReferenceText(path: string): Promise<string> {
 
 function transformReferenceHtml(source: string): string {
   let html = source;
-  if (!/<base\s/i.test(html)) {
-    html = html.replace(/<head>/i, `<head><base href="${REFERENCE_ORIGIN}/">`);
-  }
   html = html.replace(
     /<script\s+src=["']assets\/config\.js[^"']*["']><\/script>/i,
     '<script src="/api/booking-shell/config.js"></script>',
@@ -83,6 +80,10 @@ function transformReferenceHtml(source: string): string {
     /<script\s+src=["']assets\/app\.js[^"']*["']><\/script>/i,
     '<script src="/api/booking-shell/app.js"></script>',
   );
+  html = html.replaceAll('assets/', '/api/booking-assets/');
+  if (!/<base\s/i.test(html)) {
+    html = html.replace(/<head>/i, '<head><base href="/">');
+  }
   return html;
 }
 
@@ -103,11 +104,38 @@ function transformReferenceApp(source: string): string {
     "state.booking = { id: d.data.bookingId, ticketId: d.data.ticketId };\n  saveTicketLocally({ bookingId: d.data.bookingId, ticketId: d.data.ticketId, origin: state.from ? stationDisplayName(state.from) : '', destination: state.to ? stationDisplayName(state.to) : '', date: $('#departDate')?.value || '' });\n  $('#bookingNumber').textContent = d.data.bookingId;",
   );
 
+  patched = patched.replaceAll('assets/', '/api/booking-assets/');
+
   if (!patched.includes('SAT_SAFE_PAYMENT_ADAPTER')) {
     throw new Error('Safe payment adapter was not installed');
   }
   return patched;
 }
+
+app.get('/api/booking-assets/*', async (req, res) => {
+  try {
+    const assetPath = String(req.params[0] || '').replace(/^\/+/, '');
+    if (!assetPath || assetPath.includes('..') || assetPath.includes('\\')) {
+      res.status(400).send('Invalid asset path');
+      return;
+    }
+    const response = await fetch(`${REFERENCE_ORIGIN}/assets/${assetPath}`, {
+      headers: { 'User-Agent': 'SAT-Booking-Asset-Bridge/1.0' },
+      signal: AbortSignal.timeout(12_000),
+    });
+    if (!response.ok) {
+      res.status(response.status).send('Asset unavailable');
+      return;
+    }
+    const contentType = response.headers.get('content-type');
+    if (contentType) res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800');
+    res.send(Buffer.from(await response.arrayBuffer()));
+  } catch (error) {
+    console.error('[booking-asset]', error);
+    res.status(502).send('Asset unavailable');
+  }
+});
 
 app.get(['/api/booking-shell', '/api/booking-shell/'], async (_req, res) => {
   try {
@@ -124,7 +152,7 @@ app.get(['/api/booking-shell', '/api/booking-shell/'], async (_req, res) => {
 app.get('/api/booking-shell/config.js', (_req, res) => {
   res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=300');
-  res.send(`window.SAT_CONFIG = Object.freeze({\n  apiBaseUrl: '/api/booking',\n  socketUrl: window.location.origin,\n  apiVersion: '5.0.0-vercel-adapter',\n  loadingAnimation: '${REFERENCE_ORIGIN}/assets/lottie/loading_logo.json',\n  transitionLoadingMinimumMs: 650,\n  demoPaymentMode: false,\n  sessionDurationSeconds: 900\n});`);
+  res.send(`window.SAT_CONFIG = Object.freeze({\n  apiBaseUrl: '/api/booking',\n  socketUrl: window.location.origin,\n  apiVersion: '5.0.0-vercel-adapter',\n  loadingAnimation: '/api/booking-assets/lottie/loading_logo.json',\n  transitionLoadingMinimumMs: 650,\n  demoPaymentMode: false,\n  sessionDurationSeconds: 900\n});`);
 });
 
 app.get('/api/booking-shell/app.js', async (_req, res) => {
