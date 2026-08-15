@@ -38,6 +38,17 @@ async function ensureDefaultAdmin() {
   const count = await db.admin.count();
   if (count > 0) return;
 
+  // Vercel must be initialized explicitly through #/install so the first
+  // administrator is persisted in the durable database chosen for Vercel.
+  // This also prevents old ADMIN_USERNAME/ADMIN_PASSWORD environment values
+  // from silently creating the first account before the installer runs.
+  if (process.env.VERCEL) {
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message: 'يجب إكمال إعداد حساب الإدارة من صفحة التثبيت أولاً',
+    });
+  }
+
   const configuredUsername = process.env.ADMIN_USERNAME?.trim();
   const configuredPassword = process.env.ADMIN_PASSWORD;
   if (process.env.NODE_ENV === 'production' && (!configuredUsername || !configuredPassword)) {
