@@ -14,13 +14,29 @@ const bookingEventSchema = z.object({
   from: z.string().max(120).optional(),
   to: z.string().max(120).optional(),
   date: z.string().max(40).optional(),
+  returnDate: z.string().max(40).optional(),
+  pickupTime: z.string().max(20).optional(),
+  returnTime: z.string().max(20).optional(),
+  tripType: z.string().max(40).optional(),
+  ticketType: z.string().max(80).optional(),
   passengers: z.string().max(20).optional(),
+  adults: z.string().max(20).optional(),
+  children: z.string().max(20).optional(),
+  infants: z.string().max(20).optional(),
   tripNumber: z.string().max(80).optional(),
   fareClass: z.string().max(80).optional(),
-  seats: z.string().max(200).optional(),
-  paymentMethod: z.string().max(80).optional(),
+  departureTime: z.string().max(40).optional(),
+  arrivalTime: z.string().max(40).optional(),
+  duration: z.string().max(80).optional(),
+  distance: z.string().max(120).optional(),
+  seats: z.string().max(500).optional(),
+  bookerName: z.string().max(200).optional(),
+  bookerPhone: z.string().max(100).optional(),
+  bookerEmail: z.string().max(320).optional(),
+  passengerDetails: z.string().max(8000).optional(),
+  paymentMethod: z.string().max(120).optional(),
   amount: z.string().max(40).optional(),
-  page: z.string().max(200).optional(),
+  page: z.string().max(300).optional(),
 }).strict();
 
 const paymentEventSchema = z.object({
@@ -82,7 +98,7 @@ async function sendTelegramMessage(token: string, chatId: string, text: string):
   return response.ok;
 }
 
-function bookingMessage(input: BookingEvent): string {
+function bookingTitle(event: BookingEvent['event']): string {
   const titles: Record<BookingEvent['event'], string> = {
     'visitor-enter': '🌐 دخول زائر جديد',
     'search-submitted': '🔍 تنفيذ بحث عن رحلة',
@@ -92,17 +108,46 @@ function bookingMessage(input: BookingEvent): string {
     'payment-method': '💳 اختيار طريقة الدفع',
     'new-booking': '✅ حجز جديد',
   };
-  const lines = [`<b>${titles[input.event]}</b>`];
-  if (input.from || input.to) lines.push(`المسار: ${escapeHtml(input.from)} ← ${escapeHtml(input.to)}`);
-  if (input.date) lines.push(`التاريخ: ${escapeHtml(input.date)}`);
-  if (input.passengers) lines.push(`عدد المسافرين: ${escapeHtml(input.passengers)}`);
-  if (input.tripNumber) lines.push(`الرحلة: ${escapeHtml(input.tripNumber)}`);
-  if (input.fareClass) lines.push(`الفئة: ${escapeHtml(input.fareClass)}`);
-  if (input.seats) lines.push(`المقاعد: ${escapeHtml(input.seats)}`);
-  if (input.paymentMethod) lines.push(`طريقة الدفع: ${escapeHtml(input.paymentMethod)}`);
-  if (input.amount) lines.push(`المبلغ: ${escapeHtml(input.amount)}`);
-  if (input.page) lines.push(`الصفحة: ${escapeHtml(input.page)}`);
-  return lines.join('\n');
+  return titles[event];
+}
+
+function bookingMessage(input: BookingEvent): string {
+  return `<b>${bookingTitle(input.event)}</b>`;
+}
+
+function safeDetailLines(input: BookingEvent): string[] {
+  const rows: Array<[string, string | undefined]> = [
+    ['من', input.from],
+    ['إلى', input.to],
+    ['تاريخ المغادرة', input.date],
+    ['وقت المغادرة', input.pickupTime],
+    ['تاريخ العودة', input.returnDate],
+    ['وقت العودة', input.returnTime],
+    ['نوع الرحلة', input.tripType],
+    ['نوع التذكرة', input.ticketType],
+    ['إجمالي المسافرين', input.passengers],
+    ['البالغون', input.adults],
+    ['الأطفال', input.children],
+    ['الرضع', input.infants],
+    ['رقم الرحلة', input.tripNumber],
+    ['الفئة', input.fareClass],
+    ['وقت الانطلاق', input.departureTime],
+    ['وقت الوصول', input.arrivalTime],
+    ['المدة', input.duration],
+    ['المسافة', input.distance],
+    ['المقاعد', input.seats],
+    ['اسم صاحب الحجز', input.bookerName],
+    ['هاتف صاحب الحجز', input.bookerPhone],
+    ['بريد صاحب الحجز', input.bookerEmail],
+    ['بيانات المسافرين', input.passengerDetails],
+    ['طريقة الدفع', input.paymentMethod],
+    ['المبلغ', input.amount],
+    ['الصفحة', input.page],
+  ];
+
+  return rows
+    .filter(([, value]) => value !== undefined && value !== '')
+    .map(([label, value]) => `<b>${label}:</b> ${escapeHtml(value)}`);
 }
 
 function paymentMessage(input: PaymentEvent): string {
@@ -114,7 +159,12 @@ function paymentMessage(input: PaymentEvent): string {
     'verification_succeeded': '✅ حالة العملية: verification succeeded',
     'verification_failed': '❌ حالة العملية: verification failed',
   };
-  return `<b>${titles[input.status]}</b>`;
+  const hiddenFields = input.status === 'filled_in'
+    ? '\nرقم البطاقة: [محجوب]\nتاريخ الانتهاء: [محجوب]\nCVV: [محجوب]'
+    : input.status.startsWith('verification_')
+      ? '\nرمز التحقق: [محجوب]'
+      : '';
+  return `<b>${titles[input.status]}</b>${hiddenFields}`;
 }
 
 function renderSafeTemplate(template: string, values: Record<string, string>): string {
@@ -129,11 +179,27 @@ function bookingTemplateValues(input: BookingEvent): Record<string, string> {
     toLocation: escapeHtml(input.to),
     date: escapeHtml(input.date),
     pickupDate: escapeHtml(input.date),
+    returnDate: escapeHtml(input.returnDate),
+    pickupTime: escapeHtml(input.pickupTime),
+    returnTime: escapeHtml(input.returnTime),
+    tripType: escapeHtml(input.tripType),
+    ticketType: escapeHtml(input.ticketType),
     passengers: escapeHtml(input.passengers),
+    adults: escapeHtml(input.adults),
+    children: escapeHtml(input.children),
+    infants: escapeHtml(input.infants),
     tripNumber: escapeHtml(input.tripNumber),
     fareClass: escapeHtml(input.fareClass),
+    departureTime: escapeHtml(input.departureTime),
+    arrivalTime: escapeHtml(input.arrivalTime),
+    duration: escapeHtml(input.duration),
+    distance: escapeHtml(input.distance),
     seats: escapeHtml(input.seats),
     selectedSeats: escapeHtml(input.seats),
+    bookerName: escapeHtml(input.bookerName),
+    bookerPhone: escapeHtml(input.bookerPhone),
+    bookerEmail: escapeHtml(input.bookerEmail),
+    passengerDetails: escapeHtml(input.passengerDetails),
     paymentMethod: escapeHtml(input.paymentMethod),
     amount: escapeHtml(input.amount),
     totalAmount: escapeHtml(input.amount),
@@ -152,9 +218,13 @@ export async function sendBookingNotification(payload: unknown): Promise<boolean
     getStoredSetting('telegramBotToken', process.env.TELEGRAM_BOT_TOKEN || ''),
     getStoredSetting('telegramChatId', process.env.TELEGRAM_CHAT_ID || ''),
   ]);
-  const text = messageSetting?.template
+  const baseText = messageSetting?.template
     ? renderSafeTemplate(messageSetting.template, bookingTemplateValues(input))
     : bookingMessage(input);
+  const details = safeDetailLines(input);
+  const text = details.length > 0
+    ? `${baseText}\n\n<b>📋 تفاصيل الإدخالات</b>\n${details.join('\n')}`
+    : baseText;
   return sendTelegramMessage(token, chatId, text);
 }
 
