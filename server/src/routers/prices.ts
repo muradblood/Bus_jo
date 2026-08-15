@@ -1,9 +1,29 @@
 import { z } from 'zod';
 import { router, publicProcedure, adminProcedure } from '../trpc.js';
 import { db } from '../db.js';
-import { ensureCitiesSeeded } from './cities.js';
+import { ensureCitiesSeeded, listCities } from './cities.js';
+import {
+  canonicalTransportCityName,
+  normalizeTransportCityName,
+  resolveTransportCity,
+} from '../data/transportCities.js';
 
-// Haversine distance calculation
+interface CityPoint {
+  name: string;
+  lat: number;
+  lng: number;
+  region: string;
+  country: string;
+}
+
+type PricingSettings = {
+  globalMin: number;
+  globalMax: number;
+  businessMultiplier: number;
+  vipMultiplier: number;
+};
+
+// Haversine distance calculation.
 function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -14,110 +34,153 @@ function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): num
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-const CITIES: Record<string, { lat: number; lng: number }> = {
-  'الرياض': { lat: 24.7136, lng: 46.6753 },
-  'جدة': { lat: 21.5433, lng: 39.1728 },
-  'مكة المكرمة': { lat: 21.3891, lng: 39.8579 },
-  'المدينة المنورة': { lat: 24.4672, lng: 39.6024 },
-  'الدمام': { lat: 26.4207, lng: 50.0888 },
-  'الخبر': { lat: 26.2172, lng: 50.1971 },
-  'أبها': { lat: 18.2171, lng: 42.5053 },
-  'الطائف': { lat: 21.2854, lng: 40.4258 },
-  'تبوك': { lat: 28.3835, lng: 36.5662 },
-  'بريدة': { lat: 26.3260, lng: 43.9750 },
-  'حائل': { lat: 27.5219, lng: 41.6961 },
-  'جازان': { lat: 16.8892, lng: 42.5511 },
-  'نجران': { lat: 17.5656, lng: 44.2289 },
-  'ينبع': { lat: 24.0891, lng: 38.0637 },
-  'الباحة': { lat: 20.0125, lng: 41.4653 },
-  'دبي': { lat: 25.2048, lng: 55.2708 },
-  'أبوظبي': { lat: 24.4539, lng: 54.3773 },
-  'الكويت العاصمة': { lat: 29.3759, lng: 47.9774 },
-  'الدوحة': { lat: 25.2854, lng: 51.5310 },
-  'مسقط': { lat: 23.5859, lng: 58.4059 },
-  'عمان': { lat: 31.9539, lng: 35.9106 },
-  'القاهرة': { lat: 30.0444, lng: 31.2357 },
-};
-
-async function getCityCoords(name: string): Promise<{ lat: number; lng: number } | null> {
-  await ensureCitiesSeeded();
-  const stored = await db.city.findFirst({ where: { name } });
-  if (stored && (stored.lat !== 0 || stored.lng !== 0)) {
-    return { lat: stored.lat, lng: stored.lng };
-  }
-  return CITIES[name] || null;
+function routeKey(from: string, to: string): string {
+  return [normalizeTransportCityName(from), normalizeTransportCityName(to)].sort().join('::');
 }
 
-async function getPricingSettings(): Promise<Record<string, unknown>> {
-  const setting = await db.setting.findUnique({ where: { key: 'pricingSettings' } });
-  if (!setting?.value) return {};
-  try {
-    const parsed = JSON.parse(setting.value);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
+function roadFactor(from: CityPoint, to: CityPoint): number {
+  if (from.country !== to.country) return 1.22;
+  if (from.region === to.region) return 1.12;
+  return 1.18;
 }
 
-async function calcBasePrice(from: string, to: string): Promise<number> {
-  let globalMin = 40;
-  let globalMax = 160;
-  const parsed = await getPricingSettings();
-  if (typeof parsed.globalMin === 'number') globalMin = parsed.globalMin;
-  if (typeof parsed.globalMax === 'number') globalMax = parsed.globalMax;
-
-  const [c1, c2] = await Promise.all([getCityCoords(from), getCityCoords(to)]);
-  if (!c1 || !c2) return Math.round((globalMin + globalMax) / 2);
-  const dist = distanceKm(c1.lat, c1.lng, c2.lat, c2.lng) * 1.18;
-  if (dist <= 10) return globalMin;
-  if (dist >= 2100) return globalMax;
-  return Math.round(globalMin + ((dist - 10) / (2100 - 10)) * (globalMax - globalMin));
+function generatedDistance(from: CityPoint, to: CityPoint): number {
+  const straightLine = distanceKm(from.lat, from.lng, to.lat, to.lng);
+  return Math.max(1, Math.round(straightLine * roadFactor(from, to)));
 }
 
-async function getMultipliers() {
-  const defaults = { business: 1.2, vip: 2 };
-  const parsed = await getPricingSettings();
-  return {
-    business: typeof parsed.businessMultiplier === 'number' ? parsed.businessMultiplier : defaults.business,
-    vip: typeof parsed.vipMultiplier === 'number' ? parsed.vipMultiplier : defaults.vip,
+function generatedDuration(distance: number, from: CityPoint, to: CityPoint): number {
+  // Average intercity coach speed plus a deterministic border allowance for
+  // international routes. Stored/manual route duration always overrides this.
+  const borderHours = from.country === to.country ? 0 : 2;
+  return Math.max(1, Math.round(distance / 80 + 0.5 + borderHours));
+}
+
+async function getPricingSettings(): Promise<PricingSettings> {
+  const defaults: PricingSettings = {
+    globalMin: 40,
+    globalMax: 160,
+    businessMultiplier: 1.2,
+    vipMultiplier: 2,
   };
+  const setting = await db.setting.findUnique({ where: { key: 'pricingSettings' } });
+  if (!setting?.value) return defaults;
+  try {
+    const parsed = JSON.parse(setting.value) as Record<string, unknown>;
+    return {
+      globalMin: typeof parsed.globalMin === 'number' ? parsed.globalMin : defaults.globalMin,
+      globalMax: typeof parsed.globalMax === 'number' ? parsed.globalMax : defaults.globalMax,
+      businessMultiplier: typeof parsed.businessMultiplier === 'number'
+        ? parsed.businessMultiplier
+        : defaults.businessMultiplier,
+      vipMultiplier: typeof parsed.vipMultiplier === 'number'
+        ? parsed.vipMultiplier
+        : defaults.vipMultiplier,
+    };
+  } catch {
+    return defaults;
+  }
 }
 
-export async function calculateGeneratedRoute(from: string, to: string) {
-  const [economy, multipliers, c1, c2] = await Promise.all([
-    calcBasePrice(from, to),
-    getMultipliers(),
-    getCityCoords(from),
-    getCityCoords(to),
-  ]);
-  // Haversine gives straight-line distance. The road factor keeps generated
-  // bus distance closer to the actual driven route while remaining deterministic.
-  const distance = c1 && c2
-    ? Math.max(1, Math.round(distanceKm(c1.lat, c1.lng, c2.lat, c2.lng) * 1.18))
-    : 500;
-  const duration = Math.max(1, Math.round(distance / 80 + 0.5));
+function generatedEconomyPrice(distance: number, settings: PricingSettings): number {
+  const min = Math.max(0, settings.globalMin);
+  const max = Math.max(min, settings.globalMax);
+  if (distance <= 10) return Math.round(min);
+  if (distance >= 2100) return Math.round(max);
+  return Math.round(min + ((distance - 10) / (2100 - 10)) * (max - min));
+}
+
+function calculateFromPoints(
+  from: CityPoint,
+  to: CityPoint,
+  settings: PricingSettings,
+) {
+  const distance = generatedDistance(from, to);
+  const duration = generatedDuration(distance, from, to);
+  const economy = generatedEconomyPrice(distance, settings);
   return {
-    fromCity: from,
-    toCity: to,
+    fromCity: from.name,
+    toCity: to.name,
     economy,
-    business: Math.round(economy * multipliers.business),
-    vip: Math.round(economy * multipliers.vip),
+    business: Math.round(economy * settings.businessMultiplier),
+    vip: Math.round(economy * settings.vipMultiplier),
     distance,
     duration,
   };
 }
 
+async function getCityPoint(name: string): Promise<CityPoint | null> {
+  await ensureCitiesSeeded();
+  const canonicalName = canonicalTransportCityName(name);
+  const stored = await db.city.findFirst({ where: { name: canonicalName } });
+  if (stored && (stored.lat !== 0 || stored.lng !== 0)) {
+    return {
+      name: stored.name,
+      lat: stored.lat,
+      lng: stored.lng,
+      region: stored.region,
+      country: stored.country,
+    };
+  }
+  const definition = resolveTransportCity(name);
+  return definition
+    ? {
+        name: definition.name,
+        lat: definition.lat,
+        lng: definition.lng,
+        region: definition.region,
+        country: definition.country,
+      }
+    : null;
+}
+
+export async function calculateGeneratedRoute(from: string, to: string) {
+  const [fromPoint, toPoint, settings] = await Promise.all([
+    getCityPoint(from),
+    getCityPoint(to),
+    getPricingSettings(),
+  ]);
+
+  if (!fromPoint || !toPoint) {
+    const economy = Math.round((settings.globalMin + settings.globalMax) / 2);
+    return {
+      fromCity: canonicalTransportCityName(from),
+      toCity: canonicalTransportCityName(to),
+      economy,
+      business: Math.round(economy * settings.businessMultiplier),
+      vip: Math.round(economy * settings.vipMultiplier),
+      distance: 500,
+      duration: 7,
+    };
+  }
+  return calculateFromPoints(fromPoint, toPoint, settings);
+}
+
 async function storedRoute(from: string, to: string) {
+  const fromCity = canonicalTransportCityName(from);
+  const toCity = canonicalTransportCityName(to);
   return db.price.findFirst({
     where: {
       OR: [
-        { fromCity: from, toCity: to },
-        { fromCity: to, toCity: from },
+        { fromCity, toCity },
+        { fromCity: toCity, toCity: fromCity },
       ],
     },
   });
+}
+
+function storedResult(stored: Awaited<ReturnType<typeof storedRoute>>) {
+  if (!stored) return null;
+  return {
+    fromCity: stored.fromCity,
+    toCity: stored.toCity,
+    economy: stored.economyPrice,
+    business: stored.businessPrice,
+    vip: stored.vipPrice,
+    distance: stored.distance,
+    duration: stored.duration,
+    generated: stored.generated ?? false,
+  };
 }
 
 export const pricesRouter = router({
@@ -125,22 +188,13 @@ export const pricesRouter = router({
     .input(z.object({
       from: z.string().trim().min(2).max(120),
       to: z.string().trim().min(2).max(120),
-    }).refine(input => input.from !== input.to, { message: 'مدينتا الانطلاق والوصول متطابقتان' }))
+    }).refine(input => normalizeTransportCityName(input.from) !== normalizeTransportCityName(input.to), {
+      message: 'مدينتا الانطلاق والوصول متطابقتان',
+    }))
     .query(async ({ input }) => {
-      // Check DB first
       const stored = await storedRoute(input.from, input.to);
-      if (stored) {
-        return {
-          fromCity: stored.fromCity,
-          toCity: stored.toCity,
-          economy: stored.economyPrice,
-          business: stored.businessPrice,
-          vip: stored.vipPrice,
-          distance: stored.distance,
-          duration: stored.duration,
-          generated: stored.generated ?? false,
-        };
-      }
+      const manual = storedResult(stored);
+      if (manual) return manual;
       const generated = await calculateGeneratedRoute(input.from, input.to);
       return { ...generated, generated: true };
     }),
@@ -150,16 +204,44 @@ export const pricesRouter = router({
       pairs: z.array(z.object({
         from: z.string().trim().min(2).max(120),
         to: z.string().trim().min(2).max(120),
-      }).refine(pair => pair.from !== pair.to, { message: 'مدينتا الانطلاق والوصول متطابقتان' })).max(500),
+      }).refine(pair => normalizeTransportCityName(pair.from) !== normalizeTransportCityName(pair.to), {
+        message: 'مدينتا الانطلاق والوصول متطابقتان',
+      })).max(500),
     }))
     .query(async ({ input }) => {
-      return Promise.all(input.pairs.map(async pair => {
-        const stored = await storedRoute(pair.from, pair.to);
+      await ensureCitiesSeeded();
+      const [cities, storedPrices, settings] = await Promise.all([
+        listCities(),
+        db.price.findMany(),
+        getPricingSettings(),
+      ]);
+      const cityMap = new Map(cities.map(city => [normalizeTransportCityName(city.name), city]));
+      const storedMap = new Map(storedPrices.map(price => [routeKey(price.fromCity, price.toCity), price]));
+
+      return input.pairs.map(pair => {
+        const fromName = canonicalTransportCityName(pair.from);
+        const toName = canonicalTransportCityName(pair.to);
+        const stored = storedMap.get(routeKey(fromName, toName));
         if (stored) {
-          return { ...pair, economy: stored.economyPrice, business: stored.businessPrice, vip: stored.vipPrice, distance: stored.distance, duration: stored.duration };
+          return {
+            fromCity: fromName,
+            toCity: toName,
+            economy: stored.economyPrice,
+            business: stored.businessPrice,
+            vip: stored.vipPrice,
+            distance: stored.distance,
+            duration: stored.duration,
+            generated: stored.generated ?? false,
+          };
         }
-        return calculateGeneratedRoute(pair.from, pair.to);
-      }));
+        const fromPoint = cityMap.get(normalizeTransportCityName(fromName));
+        const toPoint = cityMap.get(normalizeTransportCityName(toName));
+        if (!fromPoint || !toPoint) {
+          const economy = Math.round((settings.globalMin + settings.globalMax) / 2);
+          return { fromCity: fromName, toCity: toName, economy, business: Math.round(economy * settings.businessMultiplier), vip: Math.round(economy * settings.vipMultiplier), distance: 500, duration: 7, generated: true };
+        }
+        return { ...calculateFromPoints(fromPoint, toPoint, settings), generated: true };
+      });
     }),
 
   get: publicProcedure
@@ -167,16 +249,7 @@ export const pricesRouter = router({
       from: z.string().trim().min(2).max(120),
       to: z.string().trim().min(2).max(120),
     }))
-    .query(async ({ input }) => {
-      return db.price.findFirst({
-        where: {
-          OR: [
-            { fromCity: input.from, toCity: input.to },
-            { fromCity: input.to, toCity: input.from },
-          ],
-        },
-      });
-    }),
+    .query(async ({ input }) => storedRoute(input.from, input.to)),
 
   list: adminProcedure.query(async () => {
     return db.price.findMany({ orderBy: { fromCity: 'asc' } });
@@ -184,8 +257,13 @@ export const pricesRouter = router({
 
   catalog: adminProcedure.query(async () => {
     await ensureCitiesSeeded();
-    const cities = await db.city.findMany({ orderBy: { name: 'asc' } });
-    const rows = [] as Array<{
+    const [cities, storedPrices, settings] = await Promise.all([
+      listCities(),
+      db.price.findMany(),
+      getPricingSettings(),
+    ]);
+    const storedMap = new Map(storedPrices.map(price => [routeKey(price.fromCity, price.toCity), price]));
+    const rows: Array<{
       id: number;
       fromCity: string;
       toCity: string;
@@ -196,32 +274,35 @@ export const pricesRouter = router({
       vipPrice: number;
       borderCrossings: string[];
       generated: boolean;
-    }>;
-    let id = 1;
+    }> = [];
+
+    let generatedId = 1;
     for (let i = 0; i < cities.length; i++) {
       for (let j = i + 1; j < cities.length; j++) {
-        const from = cities[i].name;
-        const to = cities[j].name;
-        const stored = await storedRoute(from, to);
+        const from = cities[i];
+        const to = cities[j];
+        const stored = storedMap.get(routeKey(from.name, to.name));
         if (stored) {
           rows.push({
             id: stored.id,
-            fromCity: from,
-            toCity: to,
+            fromCity: from.name,
+            toCity: to.name,
             distance: stored.distance,
             duration: stored.duration,
             economyPrice: stored.economyPrice,
             businessPrice: stored.businessPrice,
             vipPrice: stored.vipPrice,
-            borderCrossings: (() => { try { return JSON.parse(stored.borderCrossings); } catch { return []; } })(),
+            borderCrossings: (() => {
+              try { return JSON.parse(stored.borderCrossings); } catch { return []; }
+            })(),
             generated: stored.generated ?? false,
           });
         } else {
-          const generated = await calculateGeneratedRoute(from, to);
+          const generated = calculateFromPoints(from, to, settings);
           rows.push({
-            id: -id,
-            fromCity: from,
-            toCity: to,
+            id: -generatedId,
+            fromCity: from.name,
+            toCity: to.name,
             distance: generated.distance,
             duration: generated.duration,
             economyPrice: generated.economy,
@@ -230,8 +311,8 @@ export const pricesRouter = router({
             borderCrossings: [],
             generated: true,
           });
+          generatedId++;
         }
-        id++;
       }
     }
     return rows;
@@ -247,13 +328,18 @@ export const pricesRouter = router({
       businessPrice: z.number().finite().nonnegative().max(1_000_000),
       vipPrice: z.number().finite().nonnegative().max(1_000_000),
       borderCrossings: z.array(z.string().trim().max(120)).max(50).optional().default([]),
-    }).refine(input => input.fromCity !== input.toCity, { message: 'مدينتا الانطلاق والوصول متطابقتان' }))
+    }).refine(input => normalizeTransportCityName(input.fromCity) !== normalizeTransportCityName(input.toCity), {
+      message: 'مدينتا الانطلاق والوصول متطابقتان',
+    }))
     .mutation(async ({ input }) => {
+      const fromCity = canonicalTransportCityName(input.fromCity);
+      const toCity = canonicalTransportCityName(input.toCity);
       const { borderCrossings, ...rest } = input;
+      const canonicalData = { ...rest, fromCity, toCity };
       return db.price.upsert({
-        where: { fromCity_toCity: { fromCity: input.fromCity, toCity: input.toCity } },
-        update: { ...rest, borderCrossings: JSON.stringify(borderCrossings), generated: false },
-        create: { ...rest, borderCrossings: JSON.stringify(borderCrossings), generated: false },
+        where: { fromCity_toCity: { fromCity, toCity } },
+        update: { ...canonicalData, borderCrossings: JSON.stringify(borderCrossings), generated: false },
+        create: { ...canonicalData, borderCrossings: JSON.stringify(borderCrossings), generated: false },
       });
     }),
 
@@ -263,11 +349,13 @@ export const pricesRouter = router({
       toCity: z.string().trim().min(2).max(120),
     }))
     .mutation(async ({ input }) => {
+      const fromCity = canonicalTransportCityName(input.fromCity);
+      const toCity = canonicalTransportCityName(input.toCity);
       await db.price.deleteMany({
         where: {
           OR: [
-            { fromCity: input.fromCity, toCity: input.toCity },
-            { fromCity: input.toCity, toCity: input.fromCity },
+            { fromCity, toCity },
+            { fromCity: toCity, toCity: fromCity },
           ],
         },
       });
