@@ -1,4 +1,4 @@
-import { TRANSPORT_CITY_CATALOG } from '../server/src/data/transportCities.js';
+import { TRANSPORT_CITY_CATALOG } from './transportCities.js';
 
 export type ArchiveDocumentName = 'stations' | 'cities' | 'buses' | 'routes';
 
@@ -63,8 +63,6 @@ export function archiveSeedDocument(name: ArchiveDocumentName): Row[] {
   if (name === 'stations') return archiveStations();
   if (name === 'cities') return archiveCities();
   if (name === 'buses') return BUSES;
-  // The archive API can generate every station pair from coordinates. Manual
-  // route overrides are stored in PostgreSQL and take precedence.
   return [];
 }
 
