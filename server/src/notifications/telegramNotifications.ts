@@ -115,6 +115,74 @@ function bookingMessage(input: BookingEvent): string {
   return `<b>${bookingTitle(input.event)}</b>`;
 }
 
+function parseSelectedTrip(value: string | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function formatSelectedSeats(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map(item => String(item).replace('seat-', '')).join(', ');
+    }
+  } catch {
+    // Preserve legacy plain-text values.
+  }
+  return value;
+}
+
+async function enrichBookingEvent(input: BookingEvent): Promise<BookingEvent> {
+  if (!input.from || !input.to || !input.date || input.event === 'visitor-enter') return input;
+
+  const booking = await db.booking.findFirst({
+    where: {
+      fromLocation: input.from,
+      toLocation: input.to,
+      pickupDate: input.date,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  if (!booking) return input;
+
+  const trip = parseSelectedTrip(booking.selectedTrip);
+  const passengerDetails = input.passengerDetails || [
+    booking.passengerName ? `الأسماء: ${booking.passengerName}` : '',
+    booking.passengerPhone ? `الهاتف: ${booking.passengerPhone}` : '',
+    booking.passengerDocument ? 'رقم/أرقام الوثائق: [محجوب]' : '',
+  ].filter(Boolean).join('\n');
+
+  return {
+    ...input,
+    returnDate: input.returnDate || booking.returnDate || undefined,
+    pickupTime: input.pickupTime || booking.pickupTime || undefined,
+    returnTime: input.returnTime || booking.returnTime || undefined,
+    tripType: input.tripType || booking.tripType || undefined,
+    passengers: input.passengers || String(booking.passengers ?? ''),
+    adults: input.adults || String(booking.adults ?? ''),
+    children: input.children || String(booking.children ?? ''),
+    infants: input.infants || String(booking.infants ?? ''),
+    tripNumber: input.tripNumber || (typeof trip.tripNumber === 'string' ? trip.tripNumber : undefined),
+    fareClass: input.fareClass || booking.fareClass || undefined,
+    departureTime: input.departureTime || (typeof trip.departureTime === 'string' ? trip.departureTime : undefined),
+    arrivalTime: input.arrivalTime || (typeof trip.arrivalTime === 'string' ? trip.arrivalTime : undefined),
+    duration: input.duration || (typeof trip.duration === 'string' ? trip.duration : undefined),
+    distance: input.distance || (typeof trip.distance === 'string' ? trip.distance : undefined),
+    seats: input.seats || formatSelectedSeats(booking.selectedSeats),
+    passengerDetails: passengerDetails || undefined,
+    paymentMethod: input.paymentMethod || booking.paymentMethod || undefined,
+    amount: input.amount || (booking.totalAmount > 0 ? String(booking.totalAmount) : undefined),
+  };
+}
+
 function safeDetailLines(input: BookingEvent): string[] {
   const rows: Array<[string, string | undefined]> = [
     ['من', input.from],
@@ -209,7 +277,8 @@ function bookingTemplateValues(input: BookingEvent): Record<string, string> {
 }
 
 export async function sendBookingNotification(payload: unknown): Promise<boolean> {
-  const input = bookingEventSchema.parse(payload);
+  const parsed = bookingEventSchema.parse(payload);
+  const input = await enrichBookingEvent(parsed);
   const state = await getNotificationState();
   if (!state.bookingEnabled) return false;
   const messageSetting = state.bookingMessages.find(message => message.id === input.event);
