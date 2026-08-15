@@ -29,15 +29,22 @@ export async function ensureCitiesSeeded(): Promise<void> {
       // Turso is network-backed on Vercel. Seed missing rows in bounded parallel
       // chunks so a fresh database does not require hundreds of serial round trips.
       await runInChunks(missing, 12, async city => {
-        await db.city.create({
-          data: {
-            name: city.name,
-            lat: city.lat,
-            lng: city.lng,
-            region: city.region,
-            country: city.country,
-          },
-        });
+        try {
+          await db.city.create({
+            data: {
+              name: city.name,
+              lat: city.lat,
+              lng: city.lng,
+              region: city.region,
+              country: city.country,
+            },
+          });
+        } catch (error) {
+          // Another serverless instance may have inserted the same catalog row
+          // between the initial read and this write. Treat that unique race as success.
+          const alreadyCreated = await db.city.findFirst({ where: { name: city.name } });
+          if (!alreadyCreated) throw error;
+        }
       });
     })().catch((error) => {
       citiesSeedPromise = null;
