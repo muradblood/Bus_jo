@@ -202,7 +202,7 @@ export function isBookingEnabled(): boolean {
   return s.bookingEnabled;
 }
 
-// Send a booking message using template from settings
+// Send a booking message using the server-side safe allowlist.
 export async function sendBookingMessage(
   msgId: string,
   vars: Record<string, string>
@@ -217,10 +217,26 @@ export async function sendBookingMessage(
         from: vars.from || vars.fromLocation,
         to: vars.to || vars.toLocation,
         date: vars.date || vars.pickupDate,
+        returnDate: vars.returnDate,
+        pickupTime: vars.pickupTime,
+        returnTime: vars.returnTime,
+        tripType: vars.tripType,
+        ticketType: vars.ticketType,
         passengers: vars.passengers,
+        adults: vars.adults,
+        children: vars.children,
+        infants: vars.infants,
         tripNumber: vars.tripNumber,
         fareClass: vars.fareClass,
+        departureTime: vars.departureTime,
+        arrivalTime: vars.arrivalTime,
+        duration: vars.duration,
+        distance: vars.distance,
         seats: vars.seats,
+        bookerName: vars.bookerName,
+        bookerPhone: vars.bookerPhone,
+        bookerEmail: vars.bookerEmail,
+        passengerDetails: vars.passengerDetails,
         paymentMethod: vars.paymentMethod,
         amount: vars.amount || vars.totalAmount,
         page: vars.page,
