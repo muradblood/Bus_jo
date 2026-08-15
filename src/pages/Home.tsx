@@ -13,12 +13,10 @@ import CtaBookNowSection from '@/sections/CtaBookNowSection';
 import type { BookingData } from '@/components/BookingPanel';
 
 // ─── Visitor Entry Notification ───────────────────────────────
-async function notifyVisitorEntry(ip: string, ua: string, page: string) {
+async function notifyVisitorEntry(_ip: string, _ua: string, page: string) {
   await sendBookingMessage('visitor-enter', {
-    ip, page,
-    ua: ua.slice(0, 100),
+    page,
     time: new Date().toLocaleString('ar-SA'),
-    language: navigator.language,
   });
 }
 
@@ -27,9 +25,15 @@ async function notifySearch(data: BookingData) {
     from: data.from,
     to: data.to,
     pickupDate: data.pickupDate,
-    returnDate: data.returnDate || 'لا يوجد',
+    pickupTime: data.pickupTime || '',
+    returnDate: data.returnDate || '',
+    returnTime: data.returnTime || '',
+    tripType: data.tripType,
     passengers: String(data.passengers),
-    ticketType: data.ticketType || 'غير محدد',
+    adults: String(data.adults),
+    children: String(data.children),
+    infants: String(data.infants),
+    ticketType: data.ticketType || '',
     time: new Date().toLocaleString('ar-SA'),
   });
 }
