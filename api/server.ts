@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { handleArchiveAdmin } from './archiveAdmin.js';
 import { handleArchivePublic } from './archivePublic.js';
+import { handleBookingRouting } from './bookingRouting.js';
 import { dbExec, dbQuery, ensureArchiveDatabase, neonConfigured } from './neonDb.js';
 
 const REFERENCE_ORIGIN = 'https://sailt.satrsll.site';
@@ -155,6 +156,7 @@ app.get('/api/admin-install-shell', (_req, res) => {
 app.use(async (req, res, next) => {
   try {
     if (await handleArchiveAdmin(req, res)) return;
+    if (await handleBookingRouting(req, res)) return;
     if (await handleArchivePublic(req, res)) return;
     next();
   } catch (error) {
