@@ -56,6 +56,7 @@ export async function ensureInternationalSchema(): Promise<void> {
       await dbExec(`CREATE INDEX IF NOT EXISTS idx_intl_city_country ON international_cities(country_code,active,sort_order)`);
       await dbExec(`CREATE INDEX IF NOT EXISTS idx_intl_route_pair ON international_routes(origin_city_id,destination_city_id,active)`);
       const seeds: InternationalCountry[] = [
+        { code:'SA', nameAr:'المملكة العربية السعودية', nameEn:'Saudi Arabia', active:true, sortOrder:1 },
         { code:'JO', nameAr:'الأردن', nameEn:'Jordan', active:true, sortOrder:10 },
         { code:'AE', nameAr:'الإمارات العربية المتحدة', nameEn:'United Arab Emirates', active:true, sortOrder:20 },
         { code:'KW', nameAr:'الكويت', nameEn:'Kuwait', active:true, sortOrder:30 },
