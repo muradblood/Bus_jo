@@ -3,9 +3,11 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/server.ts": { "maxDuration": 30 }
+    "api/server.ts": { "maxDuration": 30 },
+    "api/adminLocations.ts": { "maxDuration": 30 }
   },
   "rewrites": [
+    { "source": "/api/admin-locations", "destination": "/api/adminLocations" },
     { "source": "/api/(.*)", "destination": "/api/server" },
     { "source": "/((?!api).*)", "destination": "/index.html" }
   ]
