@@ -7,6 +7,8 @@
     "api/adminLocations.ts": { "maxDuration": 30 },
     "api/adminCommerceEntry.ts": { "maxDuration": 30 },
     "api/adminPricingRules.ts": { "maxDuration": 30 },
+    "api/adminPricingPreview.ts": { "maxDuration": 30 },
+    "api/adminInternationalCatalog.ts": { "maxDuration": 30 },
     "api/internationalBooking.ts": { "maxDuration": 30 }
   },
   "git": {
@@ -18,6 +20,8 @@
     { "source": "/api/admin-locations", "destination": "/api/adminLocations" },
     { "source": "/api/admin-commerce", "destination": "/api/adminCommerceEntry" },
     { "source": "/api/admin-pricing-rules", "destination": "/api/adminPricingRules" },
+    { "source": "/api/admin-pricing-preview", "destination": "/api/adminPricingPreview" },
+    { "source": "/api/admin-international", "destination": "/api/adminInternationalCatalog" },
     { "source": "/api/international-booking", "destination": "/api/internationalBooking" },
     { "source": "/api/(.*)", "destination": "/api/server" },
     { "source": "/((?!api).*)", "destination": "/index.html" }
