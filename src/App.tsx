@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router'
+import { Routes, Route, useNavigate } from 'react-router'
 
 function Frame({ src, title }: { src: string; title: string }) {
   return (
@@ -15,7 +15,28 @@ function PublicApp() {
 }
 
 function AdminApp() {
-  return <Frame src="/api/admin-shell" title="لوحة التحكم" />
+  const navigate = useNavigate()
+  return (
+    <>
+      <Frame src="/api/admin-shell" title="لوحة التحكم" />
+      <button
+        type="button"
+        onClick={() => navigate('/admin-locations')}
+        style={{
+          position: 'fixed', left: 18, bottom: 18, zIndex: 20,
+          border: 0, borderRadius: 12, padding: '12px 16px',
+          background: '#b58a24', color: '#fff', fontWeight: 800,
+          boxShadow: '0 8px 24px rgba(0,0,0,.18)', cursor: 'pointer',
+        }}
+      >
+        المدن والمسارات
+      </button>
+    </>
+  )
+}
+
+function AdminLocationsApp() {
+  return <Frame src="/api/admin-locations" title="إدارة المدن والمسارات" />
 }
 
 function InstallApp() {
@@ -28,6 +49,7 @@ export default function App() {
       <Route path="/install" element={<InstallApp />} />
       <Route path="/admin-login" element={<AdminApp />} />
       <Route path="/admin" element={<AdminApp />} />
+      <Route path="/admin-locations" element={<AdminLocationsApp />} />
       <Route path="*" element={<PublicApp />} />
     </Routes>
   )
