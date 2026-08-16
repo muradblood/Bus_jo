@@ -1,5 +1,5 @@
-import { findSaudiCity, type SaudiCity } from '../data/saudiCities.js';
-import { getVerifiedSaudiRoute } from '../data/saudiRoutes.js';
+import type { SaudiCity } from '../data/saudiCities.js';
+import { findManagedSaudiCity, getManagedSaudiRoute } from './locationCatalog.js';
 
 export type RouteSource = 'verified' | 'routing-engine' | 'estimated';
 
@@ -15,6 +15,10 @@ export type RouteCalculation = {
 
 const memoryCache = new Map<string, { value: RouteCalculation; expiresAt: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function clearRouteCalculationCache(): void {
+  memoryCache.clear();
+}
 
 function haversineKm(a: SaudiCity, b: SaudiCity): number {
   const toRad = (v: number) => v * Math.PI / 180;
@@ -87,13 +91,15 @@ function estimatedRoute(origin: SaudiCity, destination: SaudiCity): RouteCalcula
 }
 
 export async function calculateSaudiRoute(originValue: string, destinationValue: string): Promise<RouteCalculation> {
-  const origin = findSaudiCity(originValue);
-  const destination = findSaudiCity(destinationValue);
-  if (!origin) throw new Error(`Unknown origin city: ${originValue}`);
-  if (!destination) throw new Error(`Unknown destination city: ${destinationValue}`);
+  const [origin, destination] = await Promise.all([
+    findManagedSaudiCity(originValue),
+    findManagedSaudiCity(destinationValue),
+  ]);
+  if (!origin) throw new Error(`Unknown or inactive origin city: ${originValue}`);
+  if (!destination) throw new Error(`Unknown or inactive destination city: ${destinationValue}`);
   if (origin.id === destination.id) throw new Error('Origin and destination must be different');
 
-  const verified = getVerifiedSaudiRoute(origin.id, destination.id);
+  const verified = await getManagedSaudiRoute(origin.id, destination.id);
   if (verified) {
     return {
       origin,
@@ -102,7 +108,7 @@ export async function calculateSaudiRoute(originValue: string, destinationValue:
       durationMinutes: verified.durationMinutes,
       durationTextAr: durationTextAr(verified.durationMinutes),
       source: 'verified',
-      provider: 'project-data',
+      provider: verified.source === 'admin' ? 'admin-override' : 'project-data',
     };
   }
 
