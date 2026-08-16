@@ -19,24 +19,32 @@ function AdminApp() {
   return (
     <>
       <Frame src="/api/admin-shell" title="لوحة التحكم" />
-      <button
-        type="button"
-        onClick={() => navigate('/admin-locations')}
-        style={{
-          position: 'fixed', left: 18, bottom: 18, zIndex: 20,
-          border: 0, borderRadius: 12, padding: '12px 16px',
-          background: '#b58a24', color: '#fff', fontWeight: 800,
-          boxShadow: '0 8px 24px rgba(0,0,0,.18)', cursor: 'pointer',
-        }}
-      >
-        المدن والمسارات
-      </button>
+      <div style={{ position: 'fixed', left: 18, bottom: 18, zIndex: 20, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => navigate('/admin-locations')}
+          style={{ border: 0, borderRadius: 12, padding: '12px 16px', background: '#b58a24', color: '#fff', fontWeight: 800, boxShadow: '0 8px 24px rgba(0,0,0,.18)', cursor: 'pointer' }}
+        >
+          المدن والمسارات
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/admin-commerce')}
+          style={{ border: 0, borderRadius: 12, padding: '12px 16px', background: '#273142', color: '#fff', fontWeight: 800, boxShadow: '0 8px 24px rgba(0,0,0,.18)', cursor: 'pointer' }}
+        >
+          التسعير والرحلات الدولية
+        </button>
+      </div>
     </>
   )
 }
 
 function AdminLocationsApp() {
   return <Frame src="/api/admin-locations" title="إدارة المدن والمسارات" />
+}
+
+function AdminCommerceApp() {
+  return <Frame src="/api/admin-commerce" title="إدارة التسعير والرحلات الدولية" />
 }
 
 function InstallApp() {
@@ -50,6 +58,7 @@ export default function App() {
       <Route path="/admin-login" element={<AdminApp />} />
       <Route path="/admin" element={<AdminApp />} />
       <Route path="/admin-locations" element={<AdminLocationsApp />} />
+      <Route path="/admin-commerce" element={<AdminCommerceApp />} />
       <Route path="*" element={<PublicApp />} />
     </Routes>
   )
