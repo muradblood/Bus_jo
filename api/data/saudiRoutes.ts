@@ -3,7 +3,7 @@ export type VerifiedSaudiRoute = {
   destinationId: string;
   distanceKm: number;
   durationMinutes: number;
-  source: 'verified';
+  source: 'verified' | 'base' | 'admin';
   verifiedAt: string;
   note?: string;
 };
