@@ -17,7 +17,8 @@
     "express": "^4.21.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "react-router": "^7.6.1"
+    "react-router": "^7.6.1",
+    "saudi-national-address": "^1.1.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
