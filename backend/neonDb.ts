@@ -195,10 +195,10 @@ async function seedRows(table: string, rows: Record<string, unknown>[], conflict
 
 async function seedDocuments(): Promise<void> {
   for (const key of ['stations', 'routes', 'cities', 'buses'] as ArchiveDocumentName[]) {
-    const rows = await dbQuery<{ exists: boolean }>('SELECT EXISTS(SELECT 1 FROM archive_documents WHERE document_key=$1) AS exists', [key]);
-    if (!rows[0]?.exists) {
-      await dbExec('INSERT INTO archive_documents(document_key,payload) VALUES($1,$2::jsonb)', [key, JSON.stringify(archiveSeedDocument(key))]);
-    }
+    await dbExec(
+      'INSERT INTO archive_documents(document_key,payload) VALUES($1,$2::jsonb) ON CONFLICT(document_key) DO NOTHING',
+      [key, JSON.stringify(archiveSeedDocument(key))],
+    );
   }
 }
 
@@ -211,10 +211,29 @@ async function seedDefaults(): Promise<void> {
   await seedRows('route_overrides', seedRouteOverrides(), 'route_key');
 }
 
+function isConcurrentSchemaDuplicate(error: unknown): boolean {
+  const candidate = error as { code?: string; message?: string } | null;
+  const code = String(candidate?.code || '');
+  const message = String(candidate?.message || '').toLowerCase();
+  return code === '42P07' || code === '42710' || code === '23505' && message.includes('pg_type_typname_nsp_index') ||
+    message.includes('already exists') || message.includes('pg_type_typname_nsp_index');
+}
+
+async function applySchemaStatement(statement: string): Promise<void> {
+  try {
+    await dbExec(statement);
+  } catch (error) {
+    // CREATE ... IF NOT EXISTS is not fully race-free when separate Vercel
+    // invocations initialize the same fresh PostgreSQL schema concurrently.
+    // Ignore only PostgreSQL duplicate-object races; all other failures remain fatal.
+    if (!isConcurrentSchemaDuplicate(error)) throw error;
+  }
+}
+
 export async function ensureArchiveDatabase(): Promise<void> {
   if (!schemaPromise) {
     schemaPromise = (async () => {
-      for (const statement of SCHEMA) await dbExec(statement);
+      for (const statement of SCHEMA) await applySchemaStatement(statement);
       await seedDocuments();
       await seedDefaults();
     })().catch(error => {
