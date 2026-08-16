@@ -1,5 +1,4 @@
 import type { Request, Response } from 'express';
-import { createHash } from 'node:crypto';
 import { dbExec, dbQuery, ensureArchiveDatabase, neonConfigured } from './neonDb.js';
 import { getManagedSaudiCities } from './services/locationCatalog.js';
 import { calculateSaudiRoute } from './services/routeCalculator.js';
@@ -31,19 +30,23 @@ const sessionId = (req: Request) => {
   return /^SES-[A-Za-z0-9-]{12,70}$/.test(value) ? value : '';
 };
 
-function syntheticCityId(cityKey: string, index: number): number {
+function syntheticCityId(cityKey: string): number {
   let hash = 2166136261;
   for (let i = 0; i < cityKey.length; i += 1) {
     hash ^= cityKey.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
-  return 900000 + ((hash >>> 0) % 90000000) + index;
+  return 900000 + ((hash >>> 0) % 90000000);
+}
+
+function numericCityId(city: { id: string; nationalAddressCityId?: number }): number {
+  return city.nationalAddressCityId ?? syntheticCityId(city.id);
 }
 
 async function publicCities(): Promise<PublicCity[]> {
   const managed = await getManagedSaudiCities();
-  return managed.map((city, index) => ({
-    cityId: city.nationalAddressCityId ?? syntheticCityId(city.id, index),
+  return managed.map(city => ({
+    cityId: numericCityId(city),
     cityKey: city.id,
     nameAr: city.nameAr,
     nameEn: city.nameEn || city.nameAr,
@@ -60,11 +63,10 @@ async function publicCities(): Promise<PublicCity[]> {
 async function resolveCity(value: unknown) {
   const items = await getManagedSaudiCities();
   const raw = text(value, 100).toLowerCase();
-  const numeric = Number(raw);
-  return items.find((city, index) => city.active && (
+  return items.find(city => city.active && (
     city.id === raw ||
     city.code.toLowerCase() === raw ||
-    String(city.nationalAddressCityId ?? syntheticCityId(city.id, index)) === raw ||
+    String(numericCityId(city)) === raw ||
     city.nameAr.toLowerCase() === raw ||
     String(city.nameEn || '').toLowerCase() === raw
   ));
@@ -85,6 +87,16 @@ async function fareOptions(distanceKm: number) {
   });
 }
 
+function localTime(value: Date): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Riyadh',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(value);
+}
+
 function tripSlots(date: string, durationMinutes: number, routeId: string, distanceKm: number, fares: Row[]) {
   const slots: Array<[string, string, number]> = [
     ['05:30', 'direct', 0],
@@ -103,6 +115,8 @@ function tripSlots(date: string, durationMinutes: number, routeId: string, dista
       id: `${routeId}-${date}-${index + 1}`,
       departure: departure.toISOString(),
       arrival: arrival.toISOString(),
+      departure_time: `${time}:00`,
+      arrival_time: localTime(arrival),
       duration_minutes: duration,
       distance_km: distanceKm,
       trip_type: kind,
@@ -119,8 +133,8 @@ async function recordSearch(req: Request, origin: any, destination: any, date: s
   await dbExec('INSERT INTO booking_searches(session_id,ip_address,origin_city_id,destination_city_id,origin_name,destination_name,travel_date,return_date,service_type,trip_type,passenger_count,ticket_type,direct_only) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)', [
     sessionId(req) || null,
     ip(req),
-    origin.nationalAddressCityId ?? 0,
-    destination.nationalAddressCityId ?? 0,
+    numericCityId(origin),
+    numericCityId(destination),
     origin.nameAr,
     destination.nameAr,
     date,
@@ -186,10 +200,10 @@ export async function handleBookingRouting(req: Request, res: Response): Promise
       tripId: trip.id,
       originCity: origin.nameAr,
       destinationCity: destination.nameAr,
-      originCityId: origin.nationalAddressCityId,
-      destinationCityId: destination.nationalAddressCityId,
-      departureTime: trip.departure.slice(11, 19),
-      arrivalTime: trip.arrival.slice(11, 19),
+      originCityId: numericCityId(origin),
+      destinationCityId: numericCityId(destination),
+      departureTime: trip.departure_time,
+      arrivalTime: trip.arrival_time,
       departureDateTime: trip.departure,
       arrivalDateTime: trip.arrival,
       busType: trip.bus_class === 'VIP' ? 'VIP' : 'اقتصادية',
@@ -213,8 +227,8 @@ export async function handleBookingRouting(req: Request, res: Response): Promise
     json(res, {
       status: 'success',
       meta: {
-        origin: { id: origin.id, nameAr: origin.nameAr, lat: origin.lat, lng: origin.lng },
-        destination: { id: destination.id, nameAr: destination.nameAr, lat: destination.lat, lng: destination.lng },
+        origin: { cityId: numericCityId(origin), id: origin.id, nameAr: origin.nameAr, lat: origin.lat, lng: origin.lng },
+        destination: { cityId: numericCityId(destination), id: destination.id, nameAr: destination.nameAr, lat: destination.lat, lng: destination.lng },
         distanceKm: route.distanceKm,
         durationMinutes: route.durationMinutes,
         routeSource: route.source,
