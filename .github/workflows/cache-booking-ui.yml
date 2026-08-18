@@ -1,0 +1,49 @@
+name: Vendor booking UI locally
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cache-booking-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor-booking-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download and patch booking UI
+        run: node scripts/cache-booking-ui.mjs
+
+      - name: Disable remote download during normal builds
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          delete pkg.scripts.prebuild;
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          NODE
+
+      - name: Commit local booking UI assets
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/booking-ui package.json
+          if git diff --cached --quiet; then
+            echo "No booking UI changes to commit"
+            exit 0
+          fi
+          git commit -m "Vendor booking UI assets locally"
+          git push origin HEAD:main
