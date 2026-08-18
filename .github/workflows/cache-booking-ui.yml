@@ -7,6 +7,9 @@ on:
       - '.github/workflows/cache-booking-ui.yml'
       - 'scripts/cache-booking-ui.mjs'
       - 'scripts/booking-ui-manifest.json'
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
   workflow_dispatch:
 
 permissions:
@@ -16,10 +19,10 @@ jobs:
   vendor-booking-ui:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main
+      - name: Checkout target
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -60,4 +63,8 @@ jobs:
             exit 0
           fi
           git commit -m "Vendor complete booking UI assets locally"
-          git push origin HEAD:main
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git push origin HEAD:${{ github.head_ref }}
+          else
+            git push origin HEAD:main
+          fi
