@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/cache-booking-ui.mjs",
+    "prebuild": "rm -rf public/booking-ui && mkdir -p public/booking-ui && tar -xzf ui-source/booking-ui.tar.gz -C public/booking-ui",
     "build": "vite build",
     "vercel-build": "npm run build",
     "preview": "vite preview",
