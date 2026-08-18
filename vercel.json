@@ -2,6 +2,7 @@
   "installCommand": "npm install",
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
+  "trailingSlash": false,
   "functions": {
     "api/server.ts": { "maxDuration": 30 }
   },
