@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/cache-booking-ui.mjs",
     "build": "vite build",
     "vercel-build": "npm run build",
     "preview": "vite preview",
@@ -13,7 +14,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
     "bcryptjs": "^3.0.3",
-    "cors": "^2.8.5",
+    "cors": "^4.21.2",
     "express": "^4.21.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
