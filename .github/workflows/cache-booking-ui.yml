@@ -27,12 +27,14 @@ jobs:
       - name: Download and patch booking UI
         run: node scripts/cache-booking-ui.mjs
 
-      - name: Disable remote download during normal builds
+      - name: Switch normal builds to local UI only
         run: |
           node - <<'NODE'
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
           delete pkg.scripts.prebuild;
+          pkg.scripts.build = 'vite build';
+          pkg.scripts['vercel-build'] = 'npm run build';
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           NODE
 
