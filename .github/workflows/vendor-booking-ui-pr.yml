@@ -1,0 +1,61 @@
+name: Verify and vendor booking UI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/vendor-booking-ui-pr.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Download and patch booking UI
+        run: node scripts/cache-booking-ui.mjs
+
+      - name: Verify required local files
+        run: |
+          test -s public/booking-ui/index.html
+          test -s public/booking-ui/assets/app.js
+          test -s public/booking-ui/assets/style.css
+          test -s public/booking-ui/assets/config.js
+          test $(find public/booking-ui -type f | wc -l) -gt 20
+          du -sh public/booking-ui
+
+      - name: Switch builds to local UI only
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          delete pkg.scripts.prebuild;
+          pkg.scripts.build = 'vite build';
+          pkg.scripts['vercel-build'] = 'npm run build';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          NODE
+
+      - name: Commit vendored UI to PR branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/booking-ui package.json
+          if git diff --cached --quiet; then
+            echo "No generated UI changes"
+            exit 0
+          fi
+          git commit -m "Vendor verified booking UI assets"
+          git push origin HEAD:${{ github.head_ref }}
