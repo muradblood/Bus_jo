@@ -5,10 +5,8 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/cache-booking-ui.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - '.github/workflows/cache-booking-ui.yml'
+      - 'scripts/cache-booking-ui.mjs'
+      - 'scripts/booking-ui-manifest.json'
   workflow_dispatch:
 
 permissions:
@@ -18,10 +16,10 @@ jobs:
   vendor-booking-ui:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout target branch
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'pull_request' && github.head_ref || 'main' }}
+          ref: main
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -32,23 +30,23 @@ jobs:
       - name: Download and patch booking UI
         run: node scripts/cache-booking-ui.mjs
 
-      - name: Verify required local files
+      - name: Verify complete local UI
         run: |
           test -s public/booking-ui/index.html
           test -s public/booking-ui/assets/app.js
           test -s public/booking-ui/assets/style.css
           test -s public/booking-ui/assets/config.js
-          test $(find public/booking-ui -type f | wc -l) -gt 20
+          test $(find public/booking-ui -type f | wc -l) -ge 76
           du -sh public/booking-ui
 
-      - name: Switch normal builds to local UI only
+      - name: Make normal builds local-only
         run: |
           node - <<'NODE'
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          delete pkg.scripts.prebuild;
           pkg.scripts.build = 'vite build';
           pkg.scripts['vercel-build'] = 'npm run build';
+          delete pkg.scripts.prebuild;
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           NODE
 
@@ -61,9 +59,5 @@ jobs:
             echo "No booking UI changes to commit"
             exit 0
           fi
-          git commit -m "Vendor booking UI assets locally"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git push origin HEAD:${{ github.head_ref }}
-          else
-            git push origin HEAD:main
-          fi
+          git commit -m "Vendor complete booking UI assets locally"
+          git push origin HEAD:main
