@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "rm -rf public/booking-ui && mkdir -p public/booking-ui && tar -xzf ui-source/booking-ui.tar.gz -C public/booking-ui",
-    "build": "vite build",
+    "build": "node scripts/prepare-booking-ui.mjs && vite build",
     "vercel-build": "npm run build",
     "preview": "vite preview",
     "check": "tsc -b"
@@ -14,7 +13,7 @@
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
     "bcryptjs": "^3.0.3",
-    "cors": "^2.8.5",
+    "cors": "^4.21.2",
     "express": "^4.21.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
