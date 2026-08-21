@@ -1,10 +1,11 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 const ORIGIN = 'https://sailt.satrsll.site';
 const OUT = join(process.cwd(), 'public', 'booking-ui');
 const textExt = /\.(?:html?|js|css|json)$/i;
 const assetExt = /\.(?:png|jpe?g|webp|svg|json|js|css|woff2?|ttf)(?:\?.*)?$/i;
+const roundTripEnhancement = await readFile(join(process.cwd(), 'scripts', 'roundtrip-enhancement.js'), 'utf8');
 
 async function request(path, required = false) {
   const url = new URL(path, ORIGIN);
@@ -44,7 +45,9 @@ function collectRefs(source, basePath) {
 function patchApp(source) {
   const signature = /async function api\(path, opts = \{\}\) \{\s*/;
   if (!signature.test(source)) throw new Error('Booking UI api() signature changed');
-  return source.replace(signature, `async function api(path, opts = {}) {\n  /* BUSJO_LOCAL_SAFE_ADAPTER */\n  if (path === 'payment/initiate') throw new Error('الدفع بالبطاقة غير مفعّل حتى يتم ربط بوابة دفع رسمية');\n  if (path === 'payment/verify-otp') throw new Error('التحقق OTP غير مفعّل دون مزود دفع رسمي');\n  if (opts && opts.body) {\n    try {\n      const raw = JSON.parse(opts.body);\n      const scrub = value => {\n        if (Array.isArray(value)) return value.map(scrub);\n        if (!value || typeof value !== 'object') return value;\n        const out = {};\n        Object.entries(value).forEach(([key, item]) => {\n          out[key] = /(card(number|cvv|expiry)|cvv|otp|password|identity_number|document_number)/i.test(key) ? '[محجوب]' : scrub(item);\n        });\n        return out;\n      };\n      opts = { ...opts, body: JSON.stringify(scrub(raw)) };\n    } catch (_) {}\n  }\n`);
+  const safePatched = source.replace(signature, `async function api(path, opts = {}) {\n  /* BUSJO_LOCAL_SAFE_ADAPTER */\n  if (path === 'payment/initiate') throw new Error('الدفع بالبطاقة غير مفعّل حتى يتم ربط بوابة دفع رسمية');\n  if (path === 'payment/verify-otp') throw new Error('التحقق OTP غير مفعّل دون مزود دفع رسمي');\n  if (opts && opts.body) {\n    try {\n      const raw = JSON.parse(opts.body);\n      const scrub = value => {\n        if (Array.isArray(value)) return value.map(scrub);\n        if (!value || typeof value !== 'object') return value;\n        const out = {};\n        Object.entries(value).forEach(([key, item]) => {\n          out[key] = /(card(number|cvv|expiry)|cvv|otp|password|identity_number|document_number)/i.test(key) ? '[محجوب]' : scrub(item);\n        });\n        return out;\n      };\n      opts = { ...opts, body: JSON.stringify(scrub(raw)) };\n    } catch (_) {}\n  }\n`);
+  if (!safePatched.includes('BUSJO_LOCAL_SAFE_ADAPTER')) throw new Error('Safe booking adapter was not installed');
+  return `${safePatched}\n${roundTripEnhancement}\n`;
 }
 
 async function save(path, body) {
@@ -101,4 +104,4 @@ while (pending.size) {
   }
 }
 
-console.log(`[booking-ui] prepared local UI with ${done.size + 4} files`);
+console.log(`[booking-ui] prepared local UI with ${done.size + 4} files and round-trip flow`);
