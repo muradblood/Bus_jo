@@ -10,7 +10,7 @@ const manifest = JSON.parse(await readFile(path.join(here, 'booking-ui-manifest.
 const roundTripEnhancement = await readFile(path.join(here, 'roundtrip-enhancement.js'), 'utf8');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-function urlsFor(relativePath) {
+function candidateUrls(relativePath) {
   const original = `${source}/${relativePath}`;
   return [
     original,
@@ -19,9 +19,9 @@ function urlsFor(relativePath) {
   ];
 }
 
-async function fetchBytes(relativePath) {
+async function fetchAsset(relativePath) {
   let lastError;
-  for (const url of urlsFor(relativePath)) {
+  for (const url of candidateUrls(relativePath)) {
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       try {
         const response = await fetch(url, {
@@ -45,7 +45,7 @@ async function download(relativePath) {
   if (!relativePath || relativePath.includes('..') || path.isAbsolute(relativePath)) throw new Error(`Unsafe booking UI path: ${relativePath}`);
   const target = path.join(output, relativePath);
   await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, await fetchBytes(relativePath));
+  await writeFile(target, await fetchAsset(relativePath));
 }
 
 async function runPool(items, concurrency = 4) {
@@ -65,10 +65,7 @@ const bookingTabsEnhancement = String.raw`
   let internalActivation = false;
   const findTabs = () => {
     const buttons = Array.from(document.querySelectorAll('button'));
-    return {
-      local: buttons.find(b => normalize(b.textContent) === 'الرحلات بين المدن'),
-      international: buttons.find(b => normalize(b.textContent) === 'الرحلات الدولية'),
-    };
+    return { local: buttons.find(b => normalize(b.textContent) === 'الرحلات بين المدن'), international: buttons.find(b => normalize(b.textContent) === 'الرحلات الدولية') };
   };
   const publishMode = mode => {
     activeMode = mode;
@@ -87,64 +84,51 @@ const bookingTabsEnhancement = String.raw`
   };
   const switchMode = mode => {
     if (mode === activeMode) { publishMode(mode); loadOptions(mode); return; }
-    const url = new URL(location.href);
-    url.searchParams.set('mode', mode);
-    location.replace(url.pathname + url.search + url.hash);
+    const url = new URL(location.href); url.searchParams.set('mode', mode); location.replace(url.pathname + url.search + url.hash);
   };
   const bindTabs = () => {
-    const tabs = findTabs();
-    if (!tabs.local || !tabs.international) return false;
-    tabs.local.dataset.satTab = 'local'; tabs.international.dataset.satTab = 'international';
-    if (!tabs.local.dataset.satBound) { tabs.local.dataset.satBound = '1'; tabs.local.addEventListener('click', () => { if (!internalActivation) switchMode('local'); }, true); }
-    if (!tabs.international.dataset.satBound) { tabs.international.dataset.satBound = '1'; tabs.international.addEventListener('click', () => { if (!internalActivation) switchMode('international'); }, true); }
+    const tabs = findTabs(); if (!tabs.local || !tabs.international) return false;
+    tabs.local.dataset.satTab='local'; tabs.international.dataset.satTab='international';
+    if (!tabs.local.dataset.satBound) { tabs.local.dataset.satBound='1'; tabs.local.addEventListener('click',()=>{ if(!internalActivation) switchMode('local'); },true); }
+    if (!tabs.international.dataset.satBound) { tabs.international.dataset.satBound='1'; tabs.international.addEventListener('click',()=>{ if(!internalActivation) switchMode('international'); },true); }
     publishMode(activeMode); loadOptions(activeMode);
-    if (activeMode === 'international') { internalActivation = true; setTimeout(() => { tabs.international.click(); internalActivation = false; }, 0); }
+    if (activeMode === 'international') { internalActivation=true; setTimeout(()=>{ tabs.international.click(); internalActivation=false; },0); }
     return true;
   };
   const nativeFetch = window.fetch.bind(window);
-  window.fetch = async (input, init = {}) => {
+  window.fetch = async (input, init={}) => {
     const url = typeof input === 'string' ? input : String(input?.url || '');
     if (url.includes('/api/booking/trips/search') && init?.body) {
-      try {
-        const payload = JSON.parse(String(init.body));
-        payload.serviceType = activeMode === 'international' ? 'international' : 'domestic';
-        payload.isInternational = activeMode === 'international';
-        init = { ...init, body: JSON.stringify(payload) };
-      } catch (_) {}
+      try { const payload=JSON.parse(String(init.body)); payload.serviceType=activeMode==='international'?'international':'domestic'; payload.isInternational=activeMode==='international'; init={...init,body:JSON.stringify(payload)}; } catch(_) {}
     }
-    return nativeFetch(input, init);
+    return nativeFetch(input,init);
   };
-  if (!bindTabs()) {
-    const observer = new MutationObserver(() => { if (bindTabs()) observer.disconnect(); });
-    observer.observe(document.documentElement, { childList: true, subtree: true });
-    setTimeout(() => observer.disconnect(), 15000);
-  }
+  if (!bindTabs()) { const observer=new MutationObserver(()=>{ if(bindTabs()) observer.disconnect(); }); observer.observe(document.documentElement,{childList:true,subtree:true}); setTimeout(()=>observer.disconnect(),15000); }
 })();
 </script>`;
 
-await rm(output, { recursive: true, force: true });
-await mkdir(output, { recursive: true });
+await rm(output,{recursive:true,force:true});
+await mkdir(output,{recursive:true});
 console.log(`[booking-ui] caching ${manifest.length} files from ${source}`);
-await runPool(manifest, 4);
+await runPool(manifest,4);
 
-await writeFile(path.join(output, 'assets', 'config.js'), `window.SAT_CONFIG=Object.freeze({apiBaseUrl:'/api/booking',socketUrl:'',apiVersion:'5.3.0-neon-local-ui',loadingAnimation:'assets/lottie/loading_logo.json',transitionLoadingMinimumMs:650,demoPaymentMode:false,sessionDurationSeconds:900});\n`);
+await writeFile(path.join(output,'assets','config.js'),`window.SAT_CONFIG=Object.freeze({apiBaseUrl:'/api/booking',socketUrl:'',apiVersion:'5.3.0-neon-local-ui',loadingAnimation:'assets/lottie/loading_logo.json',transitionLoadingMinimumMs:650,demoPaymentMode:false,sessionDurationSeconds:900});\n`);
 
-const appPath = path.join(output, 'assets', 'app.js');
-let appSource = await readFile(appPath, 'utf8');
-const apiSignature = /async function api\(path, opts = \{\}\) \{\s*/;
-if (!apiSignature.test(appSource)) throw new Error('Booking UI API bridge signature changed');
-appSource = appSource.replace(apiSignature, `async function api(path, opts = {}) {\n  /* SAT_NEON_SAFE_PAYMENT_ADAPTER */\n  if (path === 'payment/initiate') throw new Error('الدفع بالبطاقة غير مفعّل حتى يتم ربط بوابة دفع رسمية');\n  if (path === 'payment/verify-otp') throw new Error('التحقق OTP غير مفعّل دون مزود دفع رسمي');\n  if (opts && opts.body) {\n    try {\n      const raw = JSON.parse(opts.body);\n      const scrub = value => {\n        if (Array.isArray(value)) return value.map(scrub);\n        if (!value || typeof value !== 'object') return value;\n        const out = {};\n        Object.entries(value).forEach(([key,item]) => { out[key] = /(card(number|cvv|expiry)|cvv|otp|password|identity_number|document_number)/i.test(key) ? '[محجوب]' : scrub(item); });\n        return out;\n      };\n      opts = { ...opts, body: JSON.stringify(scrub(raw)) };\n    } catch (_) {}\n  }\n`);
-if (!appSource.includes('BUSJO_ROUND_TRIP_FLOW_V1')) appSource += `\n${roundTripEnhancement}\n`;
-await writeFile(appPath, appSource);
+const appPath=path.join(output,'assets','app.js');
+let appSource=await readFile(appPath,'utf8');
+const apiSignature=/async function api\(path, opts = \{\}\) \{\s*/;
+if(!apiSignature.test(appSource)) throw new Error('Booking UI API bridge signature changed');
+appSource=appSource.replace(apiSignature,`async function api(path, opts = {}) {\n  /* SAT_NEON_SAFE_PAYMENT_ADAPTER */\n  if (path === 'payment/initiate') throw new Error('الدفع بالبطاقة غير مفعّل حتى يتم ربط بوابة دفع رسمية');\n  if (path === 'payment/verify-otp') throw new Error('التحقق OTP غير مفعّل دون مزود دفع رسمي');\n  if (opts && opts.body) {\n    try {\n      const raw = JSON.parse(opts.body);\n      const scrub = value => {\n        if (Array.isArray(value)) return value.map(scrub);\n        if (!value || typeof value !== 'object') return value;\n        const out = {};\n        Object.entries(value).forEach(([key,item]) => { out[key]=/(card(number|cvv|expiry)|cvv|otp|password|identity_number|document_number)/i.test(key)?'[محجوب]':scrub(item); });\n        return out;\n      };\n      opts={...opts,body:JSON.stringify(scrub(raw))};\n    } catch (_) {}\n  }\n`);
+if(!appSource.includes('BUSJO_ROUND_TRIP_FLOW_V1')) appSource += `\n${roundTripEnhancement}\n`;
+await writeFile(appPath,appSource);
 
-const indexPath = path.join(output, 'index.html');
-let html = await readFile(indexPath, 'utf8');
-html = html.replace(/<script>\s*\(function\(\) \{\s*var s = document\.createElement\('script'\);[\s\S]*?document\.head\.appendChild\(s\);\s*\}\)\(\);\s*<\/script>/i, '');
-if (!html.includes('sat:trip-mode-change')) html = html.replace(/<\/body>/i, `${bookingTabsEnhancement}\n</body>`);
-await writeFile(indexPath, html);
+const indexPath=path.join(output,'index.html');
+let html=await readFile(indexPath,'utf8');
+html=html.replace(/<script>\s*\(function\(\) \{\s*var s = document\.createElement\('script'\);[\s\S]*?document\.head\.appendChild\(s\);\s*\}\)\(\);\s*<\/script>/i,'');
+if(!html.includes('sat:trip-mode-change')) html=html.replace(/<\/body>/i,`${bookingTabsEnhancement}\n</body>`);
+await writeFile(indexPath,html);
 
-for (const required of ['index.html','assets/app.js','assets/style.css','assets/config.js']) {
-  const bytes = await readFile(path.join(output, required));
-  if (!bytes.length) throw new Error(`Required local UI file is empty: ${required}`);
+for(const required of ['index.html','assets/app.js','assets/style.css','assets/config.js']) {
+  const bytes=await readFile(path.join(output,required)); if(!bytes.length) throw new Error(`Required local UI file is empty: ${required}`);
 }
 console.log('[booking-ui] complete local booking UI cache is ready');
