@@ -9,16 +9,22 @@ const roundTripEnhancement = await readFile(join(process.cwd(), 'scripts', 'roun
 
 async function request(path, required = false) {
   const url = new URL(path, ORIGIN);
-  const response = await fetch(url, {
-    headers: { 'User-Agent': 'BusJo-Static-UI-Build/1.0' },
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!response.ok) {
-    if (required) throw new Error(`Required booking UI asset failed: ${url.pathname} (${response.status})`);
-    console.warn(`[booking-ui] skip ${url.pathname}: ${response.status}`);
+  try {
+    const response = await fetch(url, {
+      headers: { 'User-Agent': 'BusJo-Static-UI-Build/1.0' },
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!response.ok) {
+      if (required) throw new Error(`Required booking UI asset failed: ${url.pathname} (${response.status})`);
+      console.warn(`[booking-ui] skip ${url.pathname}: ${response.status}`);
+      return null;
+    }
+    return response;
+  } catch (error) {
+    if (required) throw error;
+    console.warn(`[booking-ui] skip ${url.pathname}: ${error?.message || error}`);
     return null;
   }
-  return response;
 }
 
 function safePath(path) {
@@ -61,7 +67,15 @@ async function save(path, body) {
 await rm(OUT, { recursive: true, force: true });
 await mkdir(join(OUT, 'assets'), { recursive: true });
 
-const rootResponse = await request('/', true);
+let rootResponse;
+try {
+  rootResponse = await request('/', true);
+} catch (error) {
+  console.warn(`[booking-ui] remote UI unavailable; skipping generated booking UI: ${error?.message || error}`);
+  console.log('[booking-ui] continuing Vite build without remote booking UI');
+  process.exit(0);
+}
+
 let html = await rootResponse.text();
 html = html
   .replace(/<script\s+src=["']assets\/config\.js[^"']*["']><\/script>/i, '<script src="assets/config.js"></script>')
