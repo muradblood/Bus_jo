@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-booking-ui.mjs && vite build",
+    "build": "node scripts/prepare-booking-ui-local.mjs && vite build",
     "vercel-build": "npm run build",
     "preview": "vite preview",
     "check": "tsc -b"
@@ -21,7 +21,7 @@
     "saudi-national-address": "^1.1.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
+    "@types/cors": "^8.17",
     "@types/express": "^5.0.3",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
