@@ -21,7 +21,7 @@
     "saudi-national-address": "^1.1.0"
   },
   "devDependencies": {
-    "@types/cors": "^8.17",
+    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.3",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
