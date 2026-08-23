@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/prepare-booking-ui.mjs && vite build",
+    "build": "node scripts/prepare-booking-ui-local.mjs && vite build",
     "vercel-build": "npm run build",
     "preview": "vite preview",
     "check": "tsc -b"
