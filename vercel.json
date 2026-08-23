@@ -12,7 +12,8 @@
     }
   },
   "rewrites": [
+    { "source": "/api/booking-assets/(.*)", "destination": "/booking-assets/$1" },
     { "source": "/api/(.*)", "destination": "/api/server" },
-    { "source": "/((?!api).*)", "destination": "/index.html" }
+    { "source": "/((?!api|booking-assets).*)", "destination": "/index.html" }
   ]
 }
